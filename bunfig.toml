@@ -1,0 +1,3 @@
+[install]
+# hoisted: native optional deps (e.g. satteri bindings used by Starlight) must resolve from bundled chunks
+linker = "hoisted"
