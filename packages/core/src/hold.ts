@@ -1,6 +1,6 @@
 import type { MicroUsd } from "./money.js";
 import { fail, type Failure, type LedgerOp, type Plan, type Ref, type ResultLine, type UsageRow } from "./plan.js";
-import { assignRefIds, lineKey, type Dims, type PricedLine } from "./price.js";
+import { assignRefIds, checkQuota, lineKey, type Dims, type PricedLine } from "./price.js";
 import { holdUpperBound, missingPosition, rate, type Rate, type ValidRate } from "./rate.js";
 import { poolQuantity } from "./util.js";
 
@@ -31,6 +31,8 @@ export interface HoldLine {
   upperBound: MicroUsd;
   /** Pool lines: the meters feeding this pool. Its quantity follows theirs. */
   feeders?: HoldFeeder[];
+  /** Quota from `getRate`, checked on the reserved quantity at hold and extend time (not on capture). */
+  limit?: number;
 }
 
 /**
@@ -112,6 +114,7 @@ function mergeLines(existing: readonly HoldLine[], incoming: readonly PricedHold
       const h: HoldLine = { meter: l.meter, dims: (l.dims ?? {}) as Dims, quantity: 0, captured: 0, amount: 0 as MicroUsd, rate: l.rate, upperBound: 0 as MicroUsd };
       if (l.usedSoFar !== undefined) h.usedSoFar = l.usedSoFar;
       if (l.carry !== undefined) h.carry = l.carry;
+      if (l.limit !== undefined) h.limit = l.limit;
       i = out.push(h) - 1;
       index.set(key, i);
     }
@@ -133,6 +136,8 @@ export function planHold(lines: readonly PricedHoldLine[], ref: Ref, account: st
   const hl = mergeLines([], lines);
   if (!Array.isArray(hl)) return { result: hl, plan: { ledger: [], usage: [] } };
   settle(hl);
+  const quota = checkQuota(hl);
+  if (quota) return { result: quota, plan: { ledger: [], usage: [] } };
   const holdId = `${ref.type}:${ref.id}`;
   const upperBound = sum(hl.map((l) => l.upperBound)) as MicroUsd;
   const hold: Hold = {
@@ -163,6 +168,8 @@ export function planExtend(hold: Hold, added: readonly PricedHoldLine[], at: num
   const lines = mergeLines(hold.lines, added);
   if (!Array.isArray(lines)) return { result: lines, plan: { ledger: [], usage: [] } };
   settle(lines);
+  const quota = checkQuota(lines);
+  if (quota) return { result: quota, plan: { ledger: [], usage: [] } };
   const upperBound = sum(lines.map((l) => l.upperBound)) as MicroUsd;
   const delta = upperBound - hold.upperBound;
   const n = hold.seq.extend + 1;

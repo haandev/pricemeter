@@ -1,6 +1,6 @@
 import type { Commit } from "../catalog.js";
-import { InsufficientCredit } from "../errors.js";
-import type { Plan } from "../plan.js";
+import { InsufficientCredit, QuotaExceeded } from "../errors.js";
+import type { Plan, UsageRow } from "../plan.js";
 import { canonicalJson } from "../util.js";
 
 /** The subset of a synchronous SQLite driver we use. `node:sqlite`, `bun:sqlite` and better-sqlite3 all fit. */
@@ -20,6 +20,11 @@ export interface SqliteAdapterOptions {
   prepaid?: boolean;
   /** Prefix for table names. Default `""`. */
   prefix?: string;
+  /**
+   * The counter window a usage row's `limit` applies to — the same period your `getRate` counts
+   * `usedSoFar` over (e.g. `(row) => monthWindow({ at: row.at })`). Default: all time.
+   */
+  windowOf?: (row: UsageRow) => { from: number; to: number };
 }
 
 export interface AccountBalance {
@@ -81,6 +86,8 @@ export function sqliteAdapter(o: SqliteAdapterOptions): SqliteAdapter {
     holdAdd: db.prepare(
       `INSERT INTO ${p}holds (id, account_id, reserved_micro_usd) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET reserved_micro_usd = reserved_micro_usd + excluded.reserved_micro_usd`,
     ),
+    usageSeen: db.prepare(`SELECT 1 AS x FROM ${p}usage_events WHERE ref_type = ? AND ref_id = ?`),
+    usedIn: db.prepare(`SELECT COALESCE(SUM(quantity), 0) AS n FROM ${p}usage_events WHERE account_id = ? AND meter = ? AND at >= ? AND at < ?`),
     fixAmount: db.prepare(`UPDATE ${p}ledger_entries SET amount_micro_usd = ? WHERE id = ?`),
   });
   const s = () => (st ??= prepareAll());
@@ -143,6 +150,12 @@ export function sqliteAdapter(o: SqliteAdapterOptions): SqliteAdapter {
         }
       }
       for (const u of plan.usage) {
+        if (u.limit !== undefined && !q.usageSeen.get(u.refType, u.refId)) {
+          // counted inside the transaction, including rows this plan inserted before this one
+          const w = o.windowOf?.(u) ?? { from: Number.MIN_SAFE_INTEGER, to: Number.MAX_SAFE_INTEGER };
+          const used = Number((q.usedIn.get(u.account, u.meter, w.from, w.to) as { n: number | bigint }).n);
+          if (used + u.quantity > u.limit) throw new QuotaExceeded({ meter: u.meter, limit: u.limit, used, requested: u.quantity, account: u.account });
+        }
         q.usage.run(
           `${u.refType}:${u.refId}`,
           u.account,

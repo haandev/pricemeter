@@ -1,5 +1,5 @@
 import type { Commit, RateAnswer } from "../catalog.js";
-import { InsufficientCredit, isInsufficientCredit } from "../errors.js";
+import { InsufficientCredit, isInsufficientCredit, isQuotaExceeded, QuotaExceeded } from "../errors.js";
 import type { MicroUsd } from "../money.js";
 import type { LedgerOp, Plan, UsageRow } from "../plan.js";
 import type { Rate } from "../rate.js";
@@ -156,6 +156,16 @@ export function memoryAdapters(opts: MemoryAdapterOptions = {}): MemoryAdapters 
       keys.push(k);
       newUsage.push(row);
     }
+    // quotas: counters plus what this plan adds, checked before anything is applied
+    const adding = new Map<string, number>();
+    for (const row of newUsage) {
+      const ck = counterKey(row.account, row.meter, periodOf(row.at));
+      const used = (counters.get(ck) ?? 0) + (adding.get(ck) ?? 0);
+      if (row.limit !== undefined && used + row.quantity > row.limit) {
+        throw new QuotaExceeded({ meter: row.meter, limit: row.limit, used, requested: row.quantity, account: row.account });
+      }
+      adding.set(ck, (adding.get(ck) ?? 0) + row.quantity);
+    }
     // apply
     for (const k of keys) seen.add(k);
     for (const [h, v] of stagedHolds) holds.set(h, v);
@@ -231,6 +241,8 @@ export interface ContractOptions {
   make: () => Promise<ContractSubject> | ContractSubject;
   /** Whether the adapter enforces balances. Default true. */
   prepaid?: boolean;
+  /** Whether the adapter enforces `UsageRow.limit`. Default true. */
+  limits?: boolean;
 }
 
 export interface ContractCheck {
@@ -253,6 +265,7 @@ function samplePlan(account: string, refId: string, amount: number): Plan {
 /** Runs the adapter contract every `commit` must satisfy. Returns one entry per check. */
 export async function commitContract(opts: ContractOptions): Promise<{ ok: boolean; checks: ContractCheck[] }> {
   const prepaid = opts.prepaid ?? true;
+  const limits = opts.limits ?? true;
   const checks: ContractCheck[] = [];
   const check = async (name: string, fn: (s: ContractSubject) => Promise<void>) => {
     try {
@@ -318,6 +331,29 @@ export async function commitContract(opts: ContractOptions): Promise<{ ok: boole
     const snap = await s.snapshot("a");
     assert(snap.available === 1000, `expected available 1000 after release, got ${snap.available}`);
   });
+
+  if (limits) {
+    await check("a row beyond its limit throws QuotaExceeded and writes nothing", async (s) => {
+      await s.seed("a", 1000);
+      const row = (refId: string, quantity: number) => ({
+        ...samplePlan("a", refId, 0).usage[0]!,
+        quantity,
+        limit: 5,
+      });
+      await s.commit({ ledger: [], usage: [row("q1", 3)] });
+      let thrown: unknown;
+      try {
+        await s.commit({ ledger: [{ op: "charge", account: "a", amount: m(10), refType: "contract", refId: "q2", at: 0 }], usage: [row("q2", 3)] });
+      } catch (e) {
+        thrown = e;
+      }
+      assert(isQuotaExceeded(thrown), `expected QuotaExceeded, got ${String(thrown)}`);
+      const snap = await s.snapshot("a");
+      assert(snap.usage === 1 && snap.ledger === 0, `expected only the first row, got ${snap.usage}/${snap.ledger}`);
+      assert(snap.available === 1000, `expected nothing charged, got available ${snap.available}`);
+      await s.commit({ ledger: [], usage: [row("q3", 2)] }); // exactly at the limit is fine
+    });
+  }
 
   if (prepaid) {
     await check("insufficient credit throws InsufficientCredit and writes nothing", async (s) => {
