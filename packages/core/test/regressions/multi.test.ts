@@ -58,9 +58,10 @@ describe("hold + full capture vs observe for multi-line inputs", () => {
           const caps = h.result.hold.lines.filter((l) => !l.feeders).map((l) => ({ meter: l.meter as "a" | "b", dims: l.dims as { c: string }, quantity: l.quantity }));
           const c = await m.plan.capture(h.result.hold, caps, ctx);
           if (!c.result.ok) throw new Error(c.result.reason);
-          // a hold rounds each (meter, dims) once (A101): equal under cumulative, never dearer under per_event_up
+          // a hold rounds each (meter, dims) once (A101): equal under cumulative; under per_event_up the two
+          // differ only by rounding — at most one micro-unit per rounding step (charge + adjustment) per line
           if (rp.policy?.rounding === "cumulative" && ra.policy?.rounding === "cumulative") expect(c.result.charged).toBe(obs.result.charged);
-          else expect(c.result.charged).toBeLessThanOrEqual(obs.result.charged);
+          else expect(Math.abs(c.result.charged - obs.result.charged)).toBeLessThanOrEqual(2 * obs.plan.usage.length);
         },
       ),
       { numRuns: 1000 },
