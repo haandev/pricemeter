@@ -23,6 +23,7 @@ export type {
   MeterInfo,
   Metering,
   MeteringPriceOptions,
+  MeteringState,
   ObserveOptions,
   Planned,
   PoolId,

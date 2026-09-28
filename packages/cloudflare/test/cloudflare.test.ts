@@ -46,7 +46,7 @@ describe("pricemeter-cloudflare", () => {
           seed: (id, n) => creditAccount(a.get(id).sql, n),
           snapshot: (id) => {
             const s = a.get(id);
-            const count = (t: string) => Number(s.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`).one().n);
+            const count = (t: string) => Number((s.sql.exec(`SELECT COUNT(*) AS n FROM ${t}`).one() as { n: number }).n);
             return { usage: count("pm_usage_seen"), ledger: count("pm_ledger"), available: accountState(s.sql).available };
           },
         };

@@ -53,7 +53,7 @@ export interface BaseContext {
  * The catalog's type-level state. `meters` is a union of `MeterEntry` interfaces.
  *
  * Large catalogs (hundreds of chained `.meter()` calls) stay cheap for `tsc` because each step's state is
- * written out as a plain `St<…>` reference in `meter()`'s return type. Do not wrap it in a type alias:
+ * written out as a plain `MeteringState<…>` reference in `meter()`'s return type. Do not wrap it in a type alias:
  * an alias keeps the previous state as an alias type argument, TypeScript re-instantiates that chain
  * recursively, and the checker hits its instantiation depth limit at ~100 meters.
  */
@@ -76,7 +76,7 @@ export interface InitialState {
   commit: false;
 }
 
-interface St<C extends BaseContext, R extends string, M extends MeterEntry, P extends string, Rt extends boolean, Cm extends boolean> {
+export interface MeteringState<C extends BaseContext, R extends string, M extends MeterEntry, P extends string, Rt extends boolean, Cm extends boolean> {
   ctx: C;
   ref: R;
   meters: M;
@@ -84,7 +84,7 @@ interface St<C extends BaseContext, R extends string, M extends MeterEntry, P ex
   rate: Rt;
   commit: Cm;
 }
-type With<S extends CatalogState, K extends "ctx" | "ref" | "rate" | "commit", V> = St<
+type With<S extends CatalogState, K extends "ctx" | "ref" | "rate" | "commit", V> = MeteringState<
   K extends "ctx" ? Extract<V, BaseContext> : S["ctx"],
   K extends "ref" ? Extract<V, string> : S["ref"],
   S["meters"],
@@ -195,12 +195,12 @@ export interface CatalogApi<S extends CatalogState> {
     id: Id,
     dims: Spec,
     opts: { feeds: FeedsOf<S, DimsFromSpec<Spec>> },
-  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, false>, S["pools"], S["rate"], S["commit"]>>;
+  ): Metering<MeteringState<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, false>, S["pools"], S["rate"], S["commit"]>>;
   meter<const Id extends string, const Spec extends DimsSpec = readonly []>(
     id: Id,
     dims?: Spec,
     opts?: { feeds?: undefined },
-  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, IsEmpty<DimsFromSpec<Spec>>>, IsEmpty<DimsFromSpec<Spec>> extends true ? S["pools"] | Id : S["pools"], S["rate"], S["commit"]>>;
+  ): Metering<MeteringState<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, IsEmpty<DimsFromSpec<Spec>>>, IsEmpty<DimsFromSpec<Spec>> extends true ? S["pools"] | Id : S["pools"], S["rate"], S["commit"]>>;
 
   getRate(fn: GetRate<S>): Metering<With<S, "rate", true>>;
   commit(fn: Commit): Metering<With<S, "commit", true>>;

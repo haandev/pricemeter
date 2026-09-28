@@ -1,0 +1,15 @@
+{
+  "name": "pricemeter-messaging-example",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "ACCOUNT", "class_name": "AccountDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountDO"] }],
+  "d1_databases": [{ "binding": "DB", "database_name": "pricemeter-usage", "database_id": "00000000-0000-0000-0000-000000000000" }],
+  "kv_namespaces": [{ "binding": "OTPS", "id": "00000000000000000000000000000000" }],
+  "queues": {
+    "producers": [{ "binding": "WINDOWS", "queue": "wa-windows" }],
+    "consumers": [{ "queue": "wa-windows" }]
+  },
+  "triggers": { "crons": ["0 0 1 * *"] }
+}

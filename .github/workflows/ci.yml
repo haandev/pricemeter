@@ -16,6 +16,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bun run test:types
+      - run: bun run test:examples-types
       - run: bun run coverage
       - run: bun run test:bench-types
       - run: bun run build
