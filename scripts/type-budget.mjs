@@ -57,8 +57,10 @@ const run = () => {
 run(); // warm the file cache
 const { ms, out } = run();
 const pick = (k) => out.match(new RegExp(`${k}:\\s+(\\S+)`))?.[1];
-console.log(`${N} meters: wall ${ms} ms, check ${pick("Check time")}, instantiations ${pick("Instantiations")}, memory ${pick("Memory used")}`);
-if (ms > BUDGET) {
+const checkMs = Math.round(parseFloat(pick("Check time")) * 1000);
+console.log(`${N} meters: check ${checkMs} ms (budget ${BUDGET}), wall ${ms} ms, instantiations ${pick("Instantiations")}, memory ${pick("Memory used")}`);
+// The budget applies to type-checking (what the catalog types cost), not node start-up or parsing lib files.
+if (checkMs > BUDGET) {
   console.error(`over budget (${BUDGET} ms)`);
   process.exit(1);
 }

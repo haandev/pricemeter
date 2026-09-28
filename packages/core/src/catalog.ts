@@ -61,6 +61,8 @@ export interface CatalogState {
   ctx: BaseContext;
   ref: string;
   meters: MeterEntry;
+  /** Ids that can be `feeds` targets, kept incrementally (deriving them from `meters` is quadratic). */
+  pools: string;
   rate: boolean;
   commit: boolean;
 }
@@ -69,14 +71,16 @@ export interface InitialState {
   ctx: BaseContext;
   ref: string;
   meters: never;
+  pools: never;
   rate: false;
   commit: false;
 }
 
-interface St<C extends BaseContext, R extends string, M extends MeterEntry, Rt extends boolean, Cm extends boolean> {
+interface St<C extends BaseContext, R extends string, M extends MeterEntry, P extends string, Rt extends boolean, Cm extends boolean> {
   ctx: C;
   ref: R;
   meters: M;
+  pools: P;
   rate: Rt;
   commit: Cm;
 }
@@ -84,6 +88,7 @@ type With<S extends CatalogState, K extends "ctx" | "ref" | "rate" | "commit", V
   K extends "ctx" ? Extract<V, BaseContext> : S["ctx"],
   K extends "ref" ? Extract<V, string> : S["ref"],
   S["meters"],
+  S["pools"],
   K extends "rate" ? Extract<V, boolean> : S["rate"],
   K extends "commit" ? Extract<V, boolean> : S["commit"]
 >;
@@ -92,7 +97,7 @@ type IsEmpty<D> = [keyof D] extends [never] ? true : false;
 
 export type MeterId<S extends CatalogState> = S["meters"]["id"];
 export type DimsOf<S extends CatalogState, K extends MeterId<S>> = Extract<S["meters"], { id: K }>["dims"];
-export type PoolId<S extends CatalogState> = Extract<S["meters"], { pool: true }>["id"];
+export type PoolId<S extends CatalogState> = S["pools"];
 
 export type FeedWeight<D, C> = number | ((dims: D, ctx: C) => number);
 /** Pools this meter may feed. With no pool declared yet, nothing is accepted (`{}` would skip excess-property checks). */
@@ -184,16 +189,18 @@ export interface CatalogApi<S extends CatalogState> {
   refs<R extends string>(): Metering<With<S, "ref", R>>;
   refs<const R extends string>(schema: StandardSchemaV1<any, R> | Typed<R> | readonly R[]): Metering<With<S, "ref", R>>;
 
-  meter<const Id extends string, const Spec extends DimsSpec = readonly []>(
-    id: Id,
-    dims?: Spec,
-    opts?: { feeds?: undefined },
-  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, IsEmpty<DimsFromSpec<Spec>>>, S["rate"], S["commit"]>>;
+  // The feeds overload comes first: calls without opts skip it on arity alone, calls with feeds do not
+  // pay for a failed attempt at the plain overload.
   meter<const Id extends string, const Spec extends DimsSpec>(
     id: Id,
     dims: Spec,
     opts: { feeds: FeedsOf<S, DimsFromSpec<Spec>> },
-  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, false>, S["rate"], S["commit"]>>;
+  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, false>, S["pools"], S["rate"], S["commit"]>>;
+  meter<const Id extends string, const Spec extends DimsSpec = readonly []>(
+    id: Id,
+    dims?: Spec,
+    opts?: { feeds?: undefined },
+  ): Metering<St<S["ctx"], S["ref"], S["meters"] | MeterEntry<Id, DimsFromSpec<Spec>, IsEmpty<DimsFromSpec<Spec>>>, IsEmpty<DimsFromSpec<Spec>> extends true ? S["pools"] | Id : S["pools"], S["rate"], S["commit"]>>;
 
   getRate(fn: GetRate<S>): Metering<With<S, "rate", true>>;
   commit(fn: Commit): Metering<With<S, "commit", true>>;
