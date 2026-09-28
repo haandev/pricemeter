@@ -5,12 +5,14 @@ export default defineConfig({
     include: ["packages/*/test/**/*.test.ts", "examples/*/test/**/*.test.ts", "examples/recipes/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["packages/core/src/**/*.ts"],
+      include: ["packages/*/src/**/*.ts"],
       thresholds: { lines: 95, statements: 95, functions: 95 },
     },
   },
   resolve: {
     alias: [
+      { find: /^pricemeter-sqlite$/, replacement: new URL("./packages/sqlite/src/index.ts", import.meta.url).pathname },
+      { find: /^pricemeter-cloudflare$/, replacement: new URL("./packages/cloudflare/src/index.ts", import.meta.url).pathname },
       { find: /^pricemeter\/(.*)$/, replacement: new URL("./packages/core/src/$1/index.ts", import.meta.url).pathname },
       { find: /^pricemeter$/, replacement: new URL("./packages/core/src/index.ts", import.meta.url).pathname },
     ],
