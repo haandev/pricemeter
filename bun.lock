@@ -20,6 +20,16 @@
       "name": "pricemeter",
       "version": "0.1.0",
     },
+    "packages/sqlite": {
+      "name": "pricemeter-sqlite",
+      "version": "0.1.0",
+      "devDependencies": {
+        "pricemeter": "workspace:*",
+      },
+      "peerDependencies": {
+        "pricemeter": "^0.1.0",
+      },
+    },
   },
   "packages": {
     "@ark/schema": ["@ark/schema@0.56.4", "", { "dependencies": { "@ark/util": "0.56.4" } }, "sha512-nd4OqaWdKZJeGF5zNmZysDQO7NyyJ1ycl4S7i16Hj1VxqL+x72Z66lOn7ErpsoMUZtCtslAMHMjqJhuQSxciyw=="],
@@ -311,6 +321,8 @@
     "postcss-load-config": ["postcss-load-config@6.0.1", "", { "dependencies": { "lilconfig": "^3.1.1" }, "peerDependencies": { "jiti": ">=1.21.0", "postcss": ">=8.0.9", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["jiti", "postcss", "tsx", "yaml"] }, "sha512-oPtTM4oerL+UXmx+93ytZVN82RrlY/wPUV8IeDxFrzIjXOLF1pN+EmKPLbubvKHT2HC20xXsCAH2Z+CKV6Oz/g=="],
 
     "pricemeter": ["pricemeter@workspace:packages/core"],
+
+    "pricemeter-sqlite": ["pricemeter-sqlite@workspace:packages/sqlite"],
 
     "pure-rand": ["pure-rand@8.4.2", "", {}, "sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng=="],
 
