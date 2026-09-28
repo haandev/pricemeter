@@ -107,7 +107,7 @@ export function createBilling(db: SqliteLike, rows: PriceVersion[] = PRICE_ROWS)
         account: i.ctx.accountId,
         minimumMicroUsd: MINIMUM[i.ctx.plan],
         spentMicroUsd: spent,
-        period: `${i.ctx.accountId}:${key}`,
+        period: key,
         at,
         refType: "adjustment",
       });

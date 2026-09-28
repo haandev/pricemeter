@@ -103,8 +103,13 @@ export function layeredRates<C extends { accountId: string }>(o: LayeredRatesOpt
     const key = `${meter}\u0000${scopes.join("\u0000")}`;
     let hit = o.cacheMs ? cache.get(key) : undefined;
     if (!hit || hit.until <= now()) {
-      hit = { until: now() + (o.cacheMs ?? 0), rows: Promise.resolve(o.loadRows(meter, ctx)) };
-      if (o.cacheMs) cache.set(key, hit);
+      const entry = { until: now() + (o.cacheMs ?? 0), rows: Promise.resolve().then(() => o.loadRows(meter, ctx)) };
+      hit = entry;
+      if (o.cacheMs) {
+        cache.set(key, entry);
+        // never cache a failure: the next call retries
+        entry.rows.catch(() => cache.get(key) === entry && cache.delete(key));
+      }
     }
     const rate = resolveLayered({ rows: await hit.rows, scopes, dims: dims ?? {}, at, meter });
     if (!rate) return null;
@@ -138,7 +143,11 @@ export function applyDiscount(i: { rate: Rate; percent: number }): Rate {
 /** Multiplies tier thresholds (`from`) by `factor`: an enterprise account reaches cheaper tiers later or sooner. */
 export function scaleTiers(i: { rate: Rate; factor: number }): Rate {
   if (!(i.factor > 0)) throw new RangeError(`factor must be > 0, got ${i.factor}`);
-  return { ...i.rate, tiers: i.rate.tiers.map((t) => ({ ...t, from: Math.round(t.from * i.factor) })) };
+  const tiers = i.rate.tiers.map((t) => ({ ...t, from: Math.round(t.from * i.factor) }));
+  tiers.forEach((t, k) => {
+    if (k > 0 && t.from <= tiers[k - 1]!.from) throw new RangeError(`scaleTiers: factor ${i.factor} collapses tiers ${k - 1} and ${k}`);
+  });
+  return { ...i.rate, tiers };
 }
 
 /** Overrides policy fields (rounding, clamps…) on a rate. */

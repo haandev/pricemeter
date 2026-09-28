@@ -53,6 +53,8 @@ export function memoryAdapters(opts: MemoryAdapterOptions = {}): MemoryAdapters 
   const usage: UsageRow[] = [];
   const ledger: LedgerOp[] = [];
   const accounts = new Map<string, AccountState>();
+  /** Outstanding reservation per hold, as actually written (not as a retried plan claims). */
+  const holds = new Map<string, number>();
   const counters = new Map<string, number>();
   const seen = new Set<string>();
   for (const [id, b] of Object.entries(opts.balances ?? {})) accounts.set(id, { balance: b, reserved: 0 });
@@ -103,28 +105,39 @@ export function memoryAdapters(opts: MemoryAdapterOptions = {}): MemoryAdapters 
     const debits = new Map<string, number>();
     const keys: string[] = [];
     const newLedger: LedgerOp[] = [];
+    const stagedHolds = new Map(holds);
     for (const op of plan.ledger) {
       const k = `L\u0000${op.op}\u0000${op.refType}\u0000${op.refId}`;
       if (seen.has(k) || keys.includes(k)) continue;
       keys.push(k);
-      newLedger.push(op);
       const a = stagedAcct(op.account);
+      const outstanding = op.op === "charge" ? 0 : (stagedHolds.get(op.holdId) ?? 0);
       switch (op.op) {
         case "charge":
           a.balance -= op.amount;
           debits.set(op.account, (debits.get(op.account) ?? 0) + op.amount);
+          newLedger.push(op);
           break;
         case "hold":
         case "extend":
           a.reserved += op.amount;
+          stagedHolds.set(op.holdId, outstanding + op.amount);
           debits.set(op.account, (debits.get(op.account) ?? 0) + op.amount);
+          newLedger.push(op);
           break;
-        case "capture":
+        case "capture": {
+          const freed = Math.max(0, Math.min(op.amount, outstanding));
           a.balance -= op.amount;
-          a.reserved -= op.amount;
+          a.reserved -= freed;
+          stagedHolds.set(op.holdId, outstanding - freed);
+          newLedger.push(op);
           break;
+        }
         case "release":
-          a.reserved -= op.amount;
+          // frees what is actually reserved, whatever the plan computed
+          a.reserved -= outstanding;
+          stagedHolds.set(op.holdId, 0);
+          newLedger.push({ ...op, amount: outstanding as MicroUsd });
           break;
       }
     }
@@ -145,6 +158,7 @@ export function memoryAdapters(opts: MemoryAdapterOptions = {}): MemoryAdapters 
     }
     // apply
     for (const k of keys) seen.add(k);
+    for (const [h, v] of stagedHolds) holds.set(h, v);
     for (const [id, a] of staged) accounts.set(id, a);
     ledger.push(...newLedger);
     usage.push(...newUsage);
@@ -292,6 +306,17 @@ export async function commitContract(opts: ContractOptions): Promise<{ ok: boole
     await s.commit({ ledger: [{ ...base, op: "release", amount: m(180), refId: "contract:h:release" }], usage: [] });
     snap = await s.snapshot("a");
     assert(snap.available === 880, `after release expected 880, got ${snap.available}`);
+  });
+
+  await check("release frees what was reserved, even after a hold retried with another amount", async (s) => {
+    await s.seed("a", 1000);
+    const base = { account: "a", refType: "contract", holdId: "contract:h2", at: 0 } as const;
+    await s.commit({ ledger: [{ ...base, op: "hold", amount: m(100), refId: "contract:h2:hold" }], usage: [] });
+    // the retry claims 200 but is a no-op; the later release must free 100, not 200
+    await s.commit({ ledger: [{ ...base, op: "hold", amount: m(200), refId: "contract:h2:hold" }], usage: [] });
+    await s.commit({ ledger: [{ ...base, op: "release", amount: m(200), refId: "contract:h2:release" }], usage: [] });
+    const snap = await s.snapshot("a");
+    assert(snap.available === 1000, `expected available 1000 after release, got ${snap.available}`);
   });
 
   if (prepaid) {

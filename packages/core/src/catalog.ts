@@ -15,6 +15,7 @@ import { fail, type Failure, type Plan, type Ref, type Result } from "./plan.js"
 import { lineKey, price as corePrice, type Dims, type PriceOptions, type Priced, type PricedLine } from "./price.js";
 import { FREE_RATE, validateRate, type Rate, type RateValidation, type ValidRate } from "./rate.js";
 import { isStandardSchema, isTyped, runSchema, type StandardSchemaV1, type Typed } from "./standard-schema.js";
+import { poolQuantity } from "./util.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -332,11 +333,6 @@ function dimKeys(d: DimsKind): string[] {
   }
 }
 
-/** ceil(q·w) with float noise removed: 10 × 1.1 is 11, not 12. */
-function poolQuantity(q: number, w: number): number {
-  return Math.ceil(Number((q * w).toPrecision(12)));
-}
-
 function assertQuantity(meter: string, q: number) {
   if (!Number.isSafeInteger(q) || q < 0) throw new RangeError(`quantity for "${meter}" must be a non-negative integer, got ${q}`);
 }
@@ -416,7 +412,8 @@ class MeteringImpl {
   }
 
   bind(adapters: { getRate: RawGetRate; commit: Commit }): MeteringImpl {
-    return new MeteringImpl(this.#cat, adapters.getRate, adapters.commit);
+    // a copy: adding meters to the bound one must not change the original
+    return new MeteringImpl({ ...this.#cat, meters: new Map(this.#cat.meters) }, adapters.getRate, adapters.commit);
   }
 
   validateRate(rate: unknown): RateValidation {
@@ -682,18 +679,20 @@ class MeteringImpl {
     const prep = await this.#prepare(raw as Expanded[], false, ctx, opts);
     if (!prep.ok) return { result: prep, plan: { ledger: [], usage: [] }, lines: [] };
     if (prep.ctx.accountId !== hold.account) return { result: fail("invalid_context", { cause: "ctx.accountId does not match the hold" }), plan: { ledger: [], usage: [] }, lines: [] };
-    const grow = new Map<number, number>();
+    // held (meter, dims) only grow, keeping their tariff and position; new ones are expanded and priced
+    const held = new Map(hold.lines.map((l) => [lineKey(l.meter, l.dims), l]));
+    const grow: PricedHoldLine[] = [];
     const fresh: Expanded[] = [];
     for (const l of prep.lines) {
-      const key = lineKey(l.meter, l.dims);
-      const i = hold.lines.findIndex((x) => !x.feeder && lineKey(x.meter, x.dims) === key);
-      if (i >= 0) grow.set(i, (grow.get(i) ?? 0) + l.quantity);
+      const h = held.get(lineKey(l.meter, l.dims));
+      if (h) grow.push({ meter: l.meter, dims: l.dims, quantity: l.quantity, rate: h.rate });
       else fresh.push(l);
     }
-    const expanded = this.#expand(fresh, prep.ctx, opts.feeds !== false);
+    const expanded = this.#expand(fresh, prep.ctx, opts.feeds !== false, grow.length);
     const priced = await this.#resolve(expanded, prep.ctx, at, opts);
     if (!Array.isArray(priced)) return { result: priced, plan: { ledger: [], usage: [] }, lines: [] };
-    return this.#finish({ ...planExtend(hold, grow, priced, at), lines: priced as PricedLine[] }, write);
+    const added = [...grow, ...priced];
+    return this.#finish({ ...planExtend(hold, added, at), lines: added as PricedLine[] }, write);
   }
 
   async #capture(h: HoldLike, lines: unknown[], ctx: BaseContext, opts: CaptureOptions = {}, write: boolean): Promise<Planned<CaptureResult>> {

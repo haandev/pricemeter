@@ -217,6 +217,7 @@ export interface RateInput {
   carry?: number;
 }
 
+const CARRY_EPS = q(1, 1_000_000_000);
 const unitPrice = (t: Tier): Q => q(t.unitPriceMicroUsd, t.per ?? 1);
 
 export function tierAt(tiers: readonly Tier[], pos: number): number {
@@ -349,7 +350,9 @@ export function rate(i: RateInput): Rated {
       total = floor(after) - floor(before);
       carry = toCarry(frac(after));
     } else {
-      const s = add(i.carry === undefined ? ZERO : fromCarry(i.carry), delta);
+      let s = add(i.carry === undefined ? ZERO : fromCarry(i.carry), delta);
+      // a float carry holds 1e-12 resolution: snap sums within 1e-9 of the next integer (⅓ + ⅓ + ⅓ is 1)
+      if (cmp(sub(q(floor(s) + 1n), s), CARRY_EPS) <= 0) s = q(floor(s) + 1n);
       total = floor(s);
       carry = toCarry(frac(s));
     }

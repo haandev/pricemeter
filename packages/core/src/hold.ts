@@ -2,7 +2,19 @@ import type { MicroUsd } from "./money.js";
 import { fail, type Failure, type LedgerOp, type Plan, type Ref, type ResultLine, type UsageRow } from "./plan.js";
 import { assignRefIds, lineKey, type Dims, type PricedLine } from "./price.js";
 import { holdUpperBound, rate, requiresUsage, type Rate, type ValidRate } from "./rate.js";
+import { poolQuantity } from "./util.js";
 
+/** A meter feeding a pool line: its weight and its index in `Hold.lines`. */
+export interface HoldFeeder {
+  meter: string;
+  weight: number;
+  line: number;
+}
+
+/**
+ * One reserved `(meter, dims)`. A hold has at most one line per `(meter, dims)`: repeated lines are
+ * merged, so every line owns a single, non-overlapping range of tier positions starting at `usedSoFar`.
+ */
 export interface HoldLine {
   meter: string;
   dims: Dims;
@@ -17,8 +29,8 @@ export interface HoldLine {
   usedSoFar?: number;
   carry?: number;
   upperBound: MicroUsd;
-  /** Pool lines: the feeder meter, its weight and its index in `lines`. */
-  feeder?: { meter: string; weight: number; line: number };
+  /** Pool lines: the meters feeding this pool. Its quantity follows theirs. */
+  feeders?: HoldFeeder[];
 }
 
 /**
@@ -75,43 +87,52 @@ function costOf(l: HoldLine, x: number, r: ValidRate = l.rate): number {
 }
 
 const boundOf = (l: Pick<HoldLine, "rate" | "quantity" | "usedSoFar">) => holdUpperBound(l.rate, l.quantity, l.usedSoFar ?? 0);
+const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+const feederSum = (lines: readonly HoldLine[], l: HoldLine, of: "quantity" | "captured") =>
+  sum((l.feeders ?? []).map((f) => poolQuantity(lines[f.line]![of], f.weight)));
 
+/** A priced line on its way into a hold; `feeder.line` indexes the incoming array. */
 export interface PricedHoldLine extends Omit<PricedLine, "feeder"> {
   feeder?: { meter: string; weight: number; line: number };
 }
 
-function toHoldLines(lines: readonly PricedHoldLine[], existing: readonly HoldLine[]): HoldLine[] | Failure {
-  const offsets = new Map<string, number>();
-  for (const l of existing) offsets.set(lineKey(l.meter, l.dims), (offsets.get(lineKey(l.meter, l.dims)) ?? 0) + l.quantity);
-  const out: HoldLine[] = [];
-  for (const l of lines) {
-    if (l.usedSoFar === undefined && requiresUsage(l.rate, l.carry !== undefined)) return fail("usage_required", { meter: l.meter });
+/**
+ * Merges incoming priced lines into `existing` (cloned): same `(meter, dims)` adds quantity to the one line
+ * (keeping its tariff and position), pool lines collect their feeders.
+ */
+function mergeLines(existing: readonly HoldLine[], incoming: readonly PricedHoldLine[]): HoldLine[] | Failure {
+  const out = existing.map((l) => ({ ...l, ...(l.feeders ? { feeders: l.feeders.map((f) => ({ ...f })) } : {}) }));
+  const index = new Map(out.map((l, i) => [lineKey(l.meter, l.dims), i]));
+  const at: number[] = [];
+  for (const l of incoming) {
     const key = lineKey(l.meter, l.dims);
-    const off = offsets.get(key) ?? 0;
-    offsets.set(key, off + l.quantity);
-    const h: HoldLine = {
-      meter: l.meter,
-      dims: (l.dims ?? {}) as Dims,
-      quantity: l.quantity,
-      captured: 0,
-      amount: 0 as MicroUsd,
-      rate: l.rate,
-      upperBound: 0 as MicroUsd,
-    };
-    if (l.usedSoFar !== undefined) h.usedSoFar = l.usedSoFar + off;
-    if (l.carry !== undefined) h.carry = l.carry;
-    if (l.feeder) h.feeder = l.feeder;
-    h.upperBound = boundOf(h);
-    out.push(h);
+    let i = index.get(key);
+    if (i === undefined) {
+      if (l.usedSoFar === undefined && requiresUsage(l.rate, l.carry !== undefined)) return fail("usage_required", { meter: l.meter });
+      const h: HoldLine = { meter: l.meter, dims: (l.dims ?? {}) as Dims, quantity: 0, captured: 0, amount: 0 as MicroUsd, rate: l.rate, upperBound: 0 as MicroUsd };
+      if (l.usedSoFar !== undefined) h.usedSoFar = l.usedSoFar;
+      if (l.carry !== undefined) h.carry = l.carry;
+      i = out.push(h) - 1;
+      index.set(key, i);
+    }
+    const h = out[i]!;
+    h.quantity += l.quantity;
+    if (l.feeder) (h.feeders ??= []).push({ meter: l.feeder.meter, weight: l.feeder.weight, line: at[l.feeder.line]! });
+    at.push(i);
   }
   return out;
 }
 
-const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+/** Pools follow their feeders; bounds are recomputed. */
+function settle(lines: HoldLine[]): void {
+  for (const l of lines) if (l.feeders) l.quantity = Math.max(l.quantity, feederSum(lines, l, "quantity"));
+  for (const l of lines) l.upperBound = boundOf(l);
+}
 
 export function planHold(lines: readonly PricedHoldLine[], ref: Ref, account: string, at: number): HoldPlanned<HoldResult> {
-  const hl = toHoldLines(lines, []);
+  const hl = mergeLines([], lines);
   if (!Array.isArray(hl)) return { result: hl, plan: { ledger: [], usage: [] } };
+  settle(hl);
   const holdId = `${ref.type}:${ref.id}`;
   const upperBound = sum(hl.map((l) => l.upperBound)) as MicroUsd;
   const hold: Hold = {
@@ -134,32 +155,14 @@ export function planHold(lines: readonly PricedHoldLine[], ref: Ref, account: st
 }
 
 /**
- * Grows a hold. `grow` maps existing line indexes to extra units; `added` are new priced lines
- * (their `feeder.line` indexes are relative to `added` and get rebased).
+ * Grows a hold with more lines. Lines whose `(meter, dims)` is already held keep their tariff and position
+ * and only grow; new ones come priced (their `feeder.line` indexes `added`).
  */
-export function planExtend(
-  hold: Hold,
-  grow: ReadonlyMap<number, number>,
-  added: readonly PricedHoldLine[],
-  at: number,
-): HoldPlanned<HoldResult> {
+export function planExtend(hold: Hold, added: readonly PricedHoldLine[], at: number): HoldPlanned<HoldResult> {
   if (hold.released) return { result: fail("hold_closed"), plan: { ledger: [], usage: [] } };
-  const lines = hold.lines.map((l) => ({ ...l }));
-  for (const [i, extra] of grow) {
-    const l = lines[i]!;
-    l.quantity += extra;
-  }
-  // pools follow their feeders
-  for (const l of lines) {
-    if (l.feeder) l.quantity = Math.max(l.quantity, Math.ceil(lines[l.feeder.line]!.quantity * l.feeder.weight));
-  }
-  for (const l of lines) l.upperBound = boundOf(l);
-  const base = lines.length;
-  const rebased = added.map((l) => (l.feeder ? { ...l, feeder: { ...l.feeder, line: l.feeder.line + base } } : l));
-  const fresh = toHoldLines(rebased, lines);
-  if (!Array.isArray(fresh)) return { result: fresh, plan: { ledger: [], usage: [] } };
-  lines.push(...fresh);
-
+  const lines = mergeLines(hold.lines, added);
+  if (!Array.isArray(lines)) return { result: lines, plan: { ledger: [], usage: [] } };
+  settle(lines);
   const upperBound = sum(lines.map((l) => l.upperBound)) as MicroUsd;
   const delta = upperBound - hold.upperBound;
   const n = hold.seq.extend + 1;
@@ -186,20 +189,15 @@ export interface CaptureLine {
 }
 
 function findLine(lines: readonly HoldLine[], c: CaptureLine): number {
-  const matches: number[] = [];
-  lines.forEach((l, i) => {
-    if (l.meter !== c.meter) return;
-    if (c.dims !== undefined && lineKey(l.meter, l.dims) !== lineKey(c.meter, c.dims)) return;
-    if (c.dims === undefined && l.feeder) return; // pool lines follow their feeders
-    matches.push(i);
-  });
-  if (matches.length === 0) {
-    // explicit capture of a pool line
-    const pool = lines.findIndex((l) => l.meter === c.meter);
-    if (pool >= 0) return pool;
-    throw new Error(`capture: meter "${c.meter}" is not part of hold`);
+  if (c.dims !== undefined) {
+    const key = lineKey(c.meter, c.dims);
+    const i = lines.findIndex((l) => lineKey(l.meter, l.dims) === key);
+    if (i < 0) throw new Error(`capture: ${c.meter} ${JSON.stringify(c.dims)} is not part of hold`);
+    return i;
   }
-  if (matches.length > 1) throw new Error(`capture: meter "${c.meter}" appears on several hold lines; pass dims`);
+  const matches = lines.flatMap((l, i) => (l.meter === c.meter ? [i] : []));
+  if (matches.length === 0) throw new Error(`capture: meter "${c.meter}" is not part of hold`);
+  if (matches.length > 1) throw new Error(`capture: meter "${c.meter}" is held with several dims; pass dims`);
   return matches[0]!;
 }
 
@@ -213,17 +211,17 @@ export function planCapture(
   if (hold.released) return { result: fail("hold_closed"), plan: none };
   const lines = hold.lines.map((l) => ({ ...l }));
   const before = hold.lines.map((l) => l.captured);
+  const explicit = new Set<number>();
 
   for (const c of caps) {
     if (!Number.isSafeInteger(c.quantity) || c.quantity < 0) throw new RangeError(`capture quantity must be a non-negative integer`);
     const i = findLine(lines, c);
     lines[i]!.captured += c.quantity;
+    explicit.add(i);
   }
-  for (const l of lines) {
-    if (l.feeder && l.captured === before[lines.indexOf(l)]) {
-      l.captured = Math.max(l.captured, Math.min(l.quantity, Math.ceil(lines[l.feeder.line]!.captured * l.feeder.weight)));
-    }
-  }
+  lines.forEach((l, i) => {
+    if (l.feeders && !explicit.has(i)) l.captured = Math.max(l.captured, Math.min(l.quantity, feederSum(lines, l, "captured")));
+  });
   for (const l of lines) if (l.captured > l.quantity) return { result: fail("hold_exceeded", { meter: l.meter }), plan: none };
 
   const rateFor = (l: HoldLine): ValidRate => {
@@ -232,15 +230,19 @@ export function planCapture(
     return ((override as Record<string, Rate>)[l.meter] as ValidRate | undefined) ?? l.rate;
   };
 
-  const changed: number[] = [];
-  lines.forEach((l, i) => {
-    if (l.captured !== before[i]) changed.push(i);
-  });
+  const changed = lines.flatMap((l, i) => (l.captured !== before[i] ? [i] : []));
+  for (const i of changed) {
+    const l = lines[i]!;
+    const r = rateFor(l);
+    if (r !== l.rate && l.usedSoFar === undefined && requiresUsage(r, l.carry !== undefined)) {
+      return { result: fail("usage_required", { meter: l.meter }), plan: none };
+    }
+  }
   const n = hold.seq.capture + 1;
   const refIds = assignRefIds(
     changed.map((i) => {
       const l = lines[i]!;
-      return l.feeder ? { meter: l.meter, feeder: { meter: l.feeder.meter } } : { meter: l.meter };
+      return l.feeders?.length ? { meter: l.meter, feeder: { meter: l.feeders[0]!.meter } } : { meter: l.meter };
     }),
     { type: hold.refType, id: hold.refId },
   );
@@ -270,16 +272,16 @@ export function planCapture(
       at,
     };
     if (r.id !== undefined) row.rateId = r.id;
-    if (l.feeder) {
-      row.detail.feeder = l.feeder.meter;
-      row.detail.weight = l.feeder.weight;
+    if (l.feeders?.length) {
+      row.detail.feeder = l.feeders.map((f) => f.meter).join(",");
+      if (l.feeders.length === 1) row.detail.weight = l.feeders[0]!.weight;
     }
     usage.push(row);
     if (amount !== 0) {
       ledger.push({ op: "capture", holdId: hold.holdId, account: hold.account, amount: amount as MicroUsd, refType: hold.refType, refId, at });
     }
     const line: ResultLine = { meter: l.meter, quantity: l.captured - prev, amount: amount as MicroUsd, tierIndex: detailRate.tierIndex, breakdown: detailRate.breakdown };
-    if (l.feeder) line.feeder = l.feeder.meter;
+    if (l.feeders?.length) line.feeder = l.feeders[0]!.meter;
     out.push(line);
   });
 

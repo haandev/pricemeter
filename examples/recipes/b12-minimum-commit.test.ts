@@ -3,7 +3,7 @@
  * Layer: module (`minimumCommit` from /adjustments).
  *
  * How: at period close the app sums what the account spent and asks `minimumCommit` for the
- * shortfall. It returns a plan with refId `minimum_commit:{period}`, so the job can run twice.
+ * shortfall. It returns a plan with refId `minimum_commit:{account}:{period}`, so the job can run twice.
  */
 import { describe, expect, it } from "vitest";
 import { buildMetering } from "pricemeter";
@@ -26,7 +26,7 @@ describe("B12 monthly minimum commitment", () => {
 
     // $100 − $30 = $70
     const plan = minimumCommit({ account: "acme", minimumMicroUsd: 100_000_000, spentMicroUsd: spent(), period: "2026-09", at: close });
-    expect(plan.ledger).toMatchObject([{ op: "charge", amount: 70_000_000, refType: "period", refId: "minimum_commit:2026-09" }]);
+    expect(plan.ledger).toMatchObject([{ op: "charge", amount: 70_000_000, refType: "period", refId: "minimum_commit:acme:2026-09" }]);
 
     await metering.commit(plan);
     await metering.commit(plan); // the close job retried

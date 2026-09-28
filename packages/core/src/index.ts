@@ -55,6 +55,7 @@ export type {
 export type { CaptureLine, CaptureResult, CaptureSuccess, Hold, HoldLike, HoldLine, HoldResult, HoldSuccess } from "./hold.js";
 export { InsufficientCredit, isInsufficientCredit } from "./errors.js";
 export { microUsd, usd } from "./money.js";
+export { canonicalJson } from "./util.js";
 export type { MicroUsd } from "./money.js";
 export { typed } from "./standard-schema.js";
 export type { StandardSchemaV1, Typed } from "./standard-schema.js";

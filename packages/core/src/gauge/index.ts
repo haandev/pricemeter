@@ -1,3 +1,5 @@
+import { ceilClean } from "../util.js";
+
 /**
  * Turns level samples (seats, GB, instances) into one observation quantity.
  * The samples live in your application; this is pure arithmetic over them.
@@ -65,5 +67,5 @@ export function integrate(i: IntegrateInput): number {
   area += level * (w.to - t);
 
   const out = i.mode === "last" ? level : i.mode === "max" ? max : area / unitMs[i.unit ?? "s"];
-  return Math.ceil(Number(out.toPrecision(12)));
+  return ceilClean(out);
 }

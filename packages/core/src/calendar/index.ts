@@ -52,11 +52,20 @@ function localDate(ms: number, tz: string): Parts {
   return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
 }
 
-/** UTC instant of local midnight `y-m-d` in `tz`. */
+/**
+ * UTC instant of the start of local day `y-m-d` in `tz`: local midnight, or — where DST skips midnight
+ * (e.g. America/Santiago) — the first instant that is on that day.
+ */
 function midnight(y: number, m: number, d: number, tz: string): number {
   const guess = Date.UTC(y, m - 1, d);
-  const first = guess - offset(guess, tz);
-  return guess - offset(first, tz);
+  const a = guess - offset(guess, tz);
+  const b = guess - offset(a, tz);
+  const onDay = (t: number) => {
+    const p = localDate(t, tz);
+    return p.y === y && p.m === m && p.d === d;
+  };
+  const candidates = [a, b].filter(onDay).sort((x, z) => x - z);
+  return candidates[0] ?? Math.max(a, b);
 }
 
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
