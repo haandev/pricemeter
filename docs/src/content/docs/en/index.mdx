@@ -1,0 +1,48 @@
+---
+title: pricemeter
+description: A dumb, typed pricing engine for TypeScript. It owns “how much” and nothing else.
+template: splash
+hero:
+  tagline: A dumb, typed pricing engine. It owns one question — <strong>how much</strong> — and nothing else.
+  actions:
+    - text: Start in 10 minutes
+      link: /pricemeter/en/getting-started/
+      icon: right-arrow
+    - text: Where is the boundary?
+      link: /pricemeter/en/boundary/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/haandev/pricemeter
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+You give it the tariff and the usage so far; it computes the amount and returns the **plan** to write. *When*, *where* and *who* — counting, storage, calendars, buffers, queues, balances, HTTP, UI — stay in your application.
+
+<Source file="README.md" fence={0} title="README.md" />
+
+<CardGrid>
+  <Card title="Three models" icon="seti:config">
+    `graduated`, `volume` (with `on_crossing` adjustments), `package`. Per-tier `per`, flat fees, min/max per observation, `per_event_up` or drift-free `cumulative` rounding.
+  </Card>
+  <Card title="Pure core" icon="approve-check">
+    `rate()` and `price()` do no I/O. `observe` is a thin wrapper: `getRate` → `price` → `commit`.
+  </Card>
+  <Card title="Holds" icon="puzzle">
+    Multi-line reservations as value objects: partial captures, extend, release. The tariff travels inside the hold.
+  </Card>
+  <Card title="Typed catalog" icon="seti:typescript">
+    Meter ids, dimensions (zod / valibot / arktype via Standard Schema) and pools (`feeds`) are checked at compile time. A 500-meter catalog type-checks in ~0.6 s.
+  </Card>
+</CardGrid>
+
+| | |
+| --- | --- |
+| Dependencies | Zero at runtime |
+| Format | ESM + CJS, with types |
+| Runtimes | Node ≥ 20, Bun, Cloudflare Workers |
+| Money | `MicroUsd`: an integer `number`, 1 unit = 1,000,000; 2^53 ≈ 9 billion major units. A `Rate` carries no currency |
+| Package | One package: `pricemeter`. Subpaths: `/rates`, `/gauge`, `/adjustments`, `/calendar`, `/testing`, `/sqlite`, `/cloudflare` |

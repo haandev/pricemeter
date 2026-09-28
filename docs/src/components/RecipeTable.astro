@@ -1,0 +1,43 @@
+---
+import { inline } from "~/lib/prose";
+import { layerLabel, recipes } from "~/lib/recipes";
+
+interface Props {
+  lang: "tr" | "en";
+}
+const { lang } = Astro.props;
+const t = {
+  tr: { title: "Senaryo", how: "Nasıl", layer: "Katman", none: "Henüz tarif yok." },
+  en: { title: "Scenario", how: "How", layer: "Layer", none: "No recipes yet." },
+}[lang];
+const all = recipes();
+---
+
+{
+  all.length === 0 ? (
+    <p>{t.none}</p>
+  ) : (
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{t.title}</th>
+          <th>{t.how}</th>
+          <th>{t.layer}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {all.map((r) => (
+          <tr>
+            <td>
+              <a href={`#${r.anchor}`}>{r.id}</a>
+            </td>
+            <td set:html={inline(r.title.replace(/\.$/, ""))} />
+            <td set:html={inline(r.how ?? "")} />
+            <td>{layerLabel(r, lang)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}

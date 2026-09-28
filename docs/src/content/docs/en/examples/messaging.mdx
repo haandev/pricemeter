@@ -1,0 +1,61 @@
+---
+title: "Example: messaging (Cloudflare)"
+description: OTP and WhatsApp; a per-account Durable Object ledger, hold/extend/capture, embedded pricing, D1 usage.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/messaging`: a Cellonay-style OTP + WhatsApp service. A Cloudflare Worker, one Durable Object per account (ledger, balance, counters), D1 (usage), KV (OTP records), a Queue (late-published prices) and a monthly cron. Prepaid.
+
+```sh
+bunx vitest run examples/messaging     # tests without workerd (a DurableObject shim)
+cd examples/messaging && bun run dev   # wrangler dev
+```
+
+| File | Role |
+| --- | --- |
+| `src/catalog.ts` | The shared catalog; no adapters |
+| `src/prices.ts` | Layered price table + route-cost fallback |
+| `src/app.ts` | Worker logic: OTP send / resend / verify / expire, WhatsApp windows, monthly fees |
+| `src/account.ts` | The account DO's logic (`AccountCore`), independent of the `DurableObject` class |
+| `src/do.ts`, `src/worker.ts` | Thin wrappers Cloudflare instantiates |
+
+## Catalog
+
+<Source file="examples/messaging/src/catalog.ts" body />
+
+The pool (`msg/free_pool`) is declared first; SMS and WhatsApp feed it at weight 1, so a channel-independent quota of 1,000 free messages a month (B4) is one tiered tariff. The catalog has no adapters: the Worker `bind`s it, the DO only uses it for `price()`.
+
+## Prices
+
+<Source file="examples/messaging/src/prices.ts" decl="PRICE_ROWS" />
+
+Turkish SMS gets cheaper after 10,000 a month (B1), the `pro` plan has its own row, and a dedicated IP costs $50 once a month (B11). For SMS countries without a table row, the price is the carrier's cost at `at` plus a 25% margin (B23):
+
+<Source file="examples/messaging/src/prices.ts" decl="routeRate, findRate" />
+
+## Worker: bind and the OTP flow
+
+<Source file="examples/messaging/src/app.ts" from="const metering = catalog.bind(" to="^  \}\);" />
+
+`usedSoFar` is only asked for multi-tier or flat-fee tariffs, and read from the account's DO for the `monthKey({ at })` period.
+
+<Source file="examples/messaging/src/app.ts" from="async sendOtp(" to="^    \}," />
+
+<Source file="examples/messaging/src/app.ts" from="async verifyOtp(" to="^    \}," />
+
+Sending opens a two-line hold (segments + one verification) stored on the OTP record; a resend `extend`s the same hold; verification captures the segments sent and the verification and releases the rest. An expired OTP pays only for delivered segments.
+
+## Embedded pricing and late prices
+
+<Source file="examples/messaging/src/app.ts" from="async closeWindow(" to="^    \}," />
+
+The Worker prices the lines with `plan.observe` but does not write them; the account's DO re-prices them with its own counters and applies them in the same step ([embedded mode](/pricemeter/en/price-and-plan/#embedded-mode)). If the country's window price is not published yet, the result is `no_price`: the message is queued and retried an hour later with **the same `at`**.
+
+<Source file="examples/messaging/src/account.ts" decl="AccountCore" />
+
+## HTTP mapping
+
+<Source file="examples/messaging/src/worker.ts" decl="reply" />
+
+The status code is the application's decision, not the library's: `insufficient_credit` → 402, `no_price` → 422.

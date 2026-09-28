@@ -1,0 +1,24 @@
+{
+  "name": "@pricemeter/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "vitest run && tsc -p tsconfig.snippets.json"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.4",
+    "astro": "^7.3.5",
+    "sharp": "^0.34.0"
+  },
+  "devDependencies": {
+    "starlight-links-validator": "^0.26.0",
+    "starlight-typedoc": "^0.23.1",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.13.1",
+    "typescript": "6.0.3"
+  }
+}

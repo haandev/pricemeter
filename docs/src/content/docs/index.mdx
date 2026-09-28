@@ -1,0 +1,48 @@
+---
+title: pricemeter
+description: TypeScript için aptal, tipli bir fiyat motoru. Yalnızca “ne kadar” sorusunun sahibidir.
+template: splash
+hero:
+  tagline: Aptal, tipli bir fiyat motoru. Tek bir sorunun sahibi — <strong>ne kadar</strong> — ve başka hiçbir şeyin.
+  actions:
+    - text: 10 dakikada başla
+      link: /pricemeter/getting-started/
+      icon: right-arrow
+    - text: Sınır nerede?
+      link: /pricemeter/boundary/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/haandev/pricemeter
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+Tarifeyi ve şimdiye kadarki kullanımı sen verirsin; kütüphane tutarı hesaplar ve yazılacak **planı** döner. *Ne zaman*, *nerede*, *kim* — sayma, saklama, takvim, tampon, kuyruk, bakiye, HTTP, UI — senin uygulamanda kalır.
+
+<Source file="README.md" fence={0} title="README.md" />
+
+<CardGrid>
+  <Card title="Üç model" icon="seti:config">
+    `graduated`, `volume` (`on_crossing` düzeltmeli), `package`. Kademe başına `per`, sabit ücret, gözlem başı taban/tavan, `per_event_up` ya da sapmasız `cumulative` yuvarlama.
+  </Card>
+  <Card title="Saf çekirdek" icon="approve-check">
+    `rate()` ve `price()` I/O yapmaz. `observe` ince bir sarmalayıcıdır: `getRate` → `price` → `commit`.
+  </Card>
+  <Card title="Hold" icon="puzzle">
+    Çok satırlı rezervasyon bir değer nesnesidir: kısmi capture, extend, release. Tarife hold'un içinde saklanır.
+  </Card>
+  <Card title="Tipli katalog" icon="seti:typescript">
+    Sayaç id'leri, boyutlar (zod / valibot / arktype, Standard Schema), havuzlar (`feeds`) derleme anında denetlenir. 500 sayaçlı katalog ~0,6 sn'de tip denetiminden geçer.
+  </Card>
+</CardGrid>
+
+| | |
+| --- | --- |
+| Bağımlılık | Çalışma zamanında sıfır |
+| Biçim | ESM + CJS, tipleriyle |
+| Çalışma ortamı | Node ≥ 20, Bun, Cloudflare Workers |
+| Para | `MicroUsd`: tamsayı `number`, 1 birim = 1.000.000; 2^53 ≈ 9 milyar ana birim. `Rate` para birimi taşımaz |
+| Paket | Tek paket: `pricemeter`. Alt yollar: `/rates`, `/gauge`, `/adjustments`, `/calendar`, `/testing`, `/sqlite`, `/cloudflare` |

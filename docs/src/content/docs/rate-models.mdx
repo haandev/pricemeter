@@ -1,0 +1,95 @@
+---
+title: Tarife ve modeller
+description: Rate şekli, üç model, per, sabit ücret, yuvarlama, taban/tavan, hold üst sınırı ve usedSoFar.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`getRate` o anki **tarifeyi** döner: tek bir birim fiyat değil, kademelerin tamamı. Hangi kademede olunduğunu ve bir gözlemin kademeler arasında nasıl bölüneceğini `rate()` belirler. Sürüm, scope, geçerlilik tarihi ve tarihçe uygulamanın tablosunda yaşar; lib onları görmez.
+
+## `Rate`
+
+<Source file="packages/core/src/rate.ts" decl="Tier, RatePolicy, Rate" />
+
+`Rate` para birimi taşımaz. Tutarlar tamsayı mikro birimdir (`MicroUsd`, 1 = 1/1.000.000); adı tarihseldir, EUR tarifesinde aynı sayı mikro-EUR'dur. `number` kullanılır: 2^53 mikro birim ≈ 9 milyar ana birim. Hesaplar içeride kesirli sayılarla (BigInt rasyonel) yapılır, yuvarlama yalnızca sonda olur.
+
+## Üç model
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="models" />
+
+| Model | Hesap | Örnek: `usedSoFar 9990`, `quantity 20`, kademeler `[0: 50000, 10000: 45000]` |
+| --- | --- | --- |
+| `graduated` | Her dilim kendi kademesinin fiyatından; kademeye ilk girişte `flatMicroUsd` | 10×50.000 + 10×45.000 = **950.000** |
+| `volume` | Gözlemin tamamı, son birimin düştüğü kademenin fiyatından; `on_crossing` ise önceki birimler için ayrı düzeltme kalemi | 20×45.000 = **900.000**; düzeltme −9.990×5.000 = **−49.950.000** |
+| `package` | `ceil((u+q)/size) − ceil(u/size)` yeni blok × blok fiyatı (kademe fiyatı blok başınadır) | size 1000 → 1 yeni blok, 10. blok 2. kademede → **45.000** |
+
+**Üç model yeter:**
+
+- tek birim fiyat = tek kademeli `graduated`;
+- sabit ücret = tek kademe, `unitPriceMicroUsd: 0`, `flatMicroUsd` (B11);
+- yüzde = `quantity` işlem tutarıdır, `per: 1_000_000` (29.000 / 1.000.000 = %2,9; B22);
+- oranlama = `per` ile ölçek: koltuk-saniye / ay-saniye (B9).
+
+Bir tarife tek model taşır. Bileşiklik kademe alanlarından ve çok satırlı `observe`'dan gelir; iç içe tarife yoktur.
+
+## `per` ve sabit ücret
+
+- `per` fiyatın paydasıdır: `{ unitPriceMicroUsd: 150_000, per: 1_000_000 }` milyon token başına $0,15'tir. Varsayılan 1.
+- `flatMicroUsd`, kullanım o kademeye **ilk girdiğinde** bir kez eklenir; yani `usedSoFar ≤ from < usedSoFar + quantity` olan gözlemde. İlk kademedeki sabit ücret dönemin ilk gözleminde düşer. Her gözlemde tekrar etmesi gereken bir sabit ücret için her gözlem kendi dönemidir: `getRate` `usedSoFar: 0` döner (`tierPeriod: "observation"`, A97).
+
+## Yuvarlama
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="rounding" />
+
+| `rounding` | Hesap | Ne zaman |
+| --- | --- | --- |
+| `per_event_up` (varsayılan) | Her gözlem yukarı yuvarlanır | Gözlem başına tutarın anlamlı olduğu her yer |
+| `cumulative` | `floor(T(u+q)) − floor(T(u))`; `T` dönemin kesin toplamı | Çok küçük birim fiyatlar (LLM token): dönem toplamı sapmasız |
+
+`cumulative` tam teleskopiktir: dönemin gözlemleri toplamı, dönemin tek seferde fiyatlanmasıyla aynıdır (A83). Kesin toplam için `usedSoFar` gerekir. `T`'nin tanımsız olduğu durumda — `volume` ile `adjustmentTiming: "none"` — kütüphane bir önceki gözlemden kalan küsuratı (`carry`, `[0, 1)`) ister: `getRate` onu `{ rate, usedSoFar, carry }` içinde döner. Her usage satırı `detail.carry`'yi taşır.
+
+<Aside type="caution">
+`volume` + `none` + `cumulative` tarifesi `carry` olmadan `usage_required` döner (A106): kütüphane küsuratı sessizce 0 kabul etmez. `carry`'yi `getRate`'ten ya da satırdan ilet (bir önceki satırın `detail.carry`'si), veya `per_event_up` kullan.
+</Aside>
+
+## Gözlem başı taban ve tavan
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="clamp" />
+
+`policy.perObservation` tek bir gözlemin tutarını `[minMicroUsd, maxMicroUsd]` aralığına kırpar ve satırı `clamped: "min" | "max"` ile işaretler. Hacim düzeltmesi kırpılmaz; miktarı 0 olan gözlem kırpılmaz.
+
+## Hold üst sınırı
+
+Bir hold'un ayırdığı tutar, gözlemin nereye düşeceği bilinmeden geçerli en kötü durumdur (A80):
+
+- en pahalı kademenin birim fiyatı (`unitPriceMicroUsd / per`) × adet (package: `ceil(q/size)` blok),
+- \+ tarifedeki **tüm** `flatMicroUsd`'ler,
+- \+ (`volume` + `on_crossing`) `usedSoFar × (pmax − pmin)`,
+- `perObservation` ile kırpılır.
+
+`rate()` bunu her gözlem için `holdUpperBound` alanında da döner; ayrıca `holdUpperBound(rate, quantity, usedSoFar)` olarak dışa açıktır.
+
+## `usedSoFar`
+
+Bu hesabın bu sayaçta bu dönemde şimdiye kadarki adedi. Kademe bölme için gerekir ve **sessizce 0 varsayılmaz** (A58, A82). Şunlardan biri varsa zorunludur:
+
+| Tarife | `usedSoFar` |
+| --- | --- |
+| Birden çok kademe | zorunlu |
+| `volume` ya da `package` | zorunlu |
+| Herhangi bir kademede `flatMicroUsd` (tek kademe bile: ilk girişi bilmek gerekir) | zorunlu |
+| `cumulative` yuvarlama, `carry` yoksa | zorunlu |
+| Tek kademeli, sabit ücretsiz `graduated` | gerekmez |
+
+Eksikse sonuç `{ ok: false, reason: "usage_required", meter }` olur. Kaynağı `getRate`'tir; `observe(..., { usedSoFar })` onu ezer (ör. Durable Object içinde sayaç zaten elde). Aynı çağrıda aynı `(meter, dims)` satırları birbirinin `usedSoFar`'ını ilerletir (A84). Hangi dönemin sayacının kullanılacağı uygulamanındır; `policy.tierPeriod` bu seçimi tarifeye not eden bir ipucudur, lib onu okumaz (bkz. [/calendar](/pricemeter/modules/calendar/)).
+
+## `validateRate`
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="validate" />
+
+Kurallar: ilk kademe `from = 0`; `from` kesin artan; fiyatlar ve sabit ücretler ≥ 0 tamsayı; `per ≥ 1` tamsayı; `packageSize ≥ 1` ve yalnızca `package`'da; `adjustmentTiming` yalnızca `volume`'da; `min ≤ max`. `graduated` için "artmayan fiyat" kuralı yoktur: B3'ün `[0: 0, 500: p]` tarifesi artan fiyatlıdır (A79).
+
+Hata kodları: `invalid_shape`, `invalid_model`, `empty_tiers`, `first_tier_from`, `invalid_from`, `tiers_not_increasing`, `invalid_price`, `invalid_per`, `invalid_flat`, `invalid_package_size`, `package_size_not_allowed`, `adjustment_timing_not_allowed`, `invalid_policy`, `min_gt_max`. Her hata `{ code, path, message }`.
+
+Başarılı doğrulama dondurulmuş, markalı bir kopya döner: `ValidRate`. `getRate` ham obje dönebilir; doğrudan `price()` ya da `rate()` çağıran `ValidRate` vermek zorundadır. `defineRate(rate)` aynı işi yapar ama hata durumunda `RateError` fırlatır; koddaki sabit tarifeler ve testler için.

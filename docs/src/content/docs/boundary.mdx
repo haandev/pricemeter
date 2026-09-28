@@ -1,0 +1,55 @@
+---
+title: “Ne kadar / ne zaman” sınırı
+description: pricemeter neyin sahibidir, neyi uygulamaya bırakır.
+---
+
+`pricemeter` **"ne kadar"** sorusunun tek sahibi olan aptal bir kütüphanedir. Uygulama tarifeyi ve şimdiye kadarki kullanımı verir; kütüphane tutarı hesaplar ve ne yazılacağını söyler. **"Ne zaman", "nerede", "kim"** — sayma, saklama, takvim, tampon, kuyruk, bakiye, HTTP, UI — tamamen uygulamanındır.
+
+## Veri akışı
+
+İki giriş, iki çıkış:
+
+```text
+  tarife + usedSoFar  ──(getRate)──┐
+                                   ├──► rate() / price() ──► Result   (uygulamaya)
+  gözlem: meter, dims, quantity ───┘                    └──► Plan     (commit'e)
+```
+
+`rate()` ve `price()` saftır. `observe` bunları saran ince bir katmandır: `getRate` → `price` → `commit`.
+
+## Kim neyin sahibi
+
+| Kütüphane (ne kadar) | Uygulama (ne zaman / nerede / kim) |
+| --- | --- |
+| `Rate` şekli ve doğrulaması | Fiyat tablosu, sürümleme, admin UI (`/rates` isteğe bağlı) |
+| Üç model, `per`, sabit ücret, yuvarlama, taban/tavan, hacim düzeltmesi | Hangi an için fiyat (`at`'i yorumlamak `getRate`'in işi) |
+| `usedSoFar` ile kademe bölme | `usedSoFar`'ı saymak, dönemi seçmek, takvim (`/calendar` isteğe bağlı) |
+| Hold üst sınırı, teleskopik capture | Hold'u saklamak (değer nesnesi) |
+| İdempotent `refId`'li ledger + usage planı | Planı atomik ve idempotent yazmak (`commit`) |
+| Katalog: tipli sayaç id'leri, boyut şemaları, `feeds` | Bakiye kapısı, kuyruk, tampon, zamanlayıcı, fatura, vergi, ödeme, kur |
+
+## Neden bakiye kapısı kütüphanede değil
+
+"Bakiye ≥ tutar" kontrolü ile yazım aynı atomik sınırda olmazsa yarış vardır. Bunu yalnızca ledger'ın bulunduğu yer yapabilir: SQLite'ta tek bir `BEGIN IMMEDIATE`, Cloudflare'de hesabın Durable Object'i içinde `transactionSync`. Bu yüzden `commit` yetersiz bakiyede `InsufficientCredit` fırlatır, kütüphane bunu `{ ok: false, reason: "insufficient_credit" }`'e çevirir. Postpaid = `commit` hiç fırlatmaz.
+
+## Neden `at` yorumlanmaz
+
+Hangi ana göre fiyat verileceği (olay anı, hesap anı, verilen bir an) `getRate`'i yazanın kararıdır. Kütüphane `at`'i `getRate`'e ve usage satırına iletir, başka hiçbir şey yapmaz. Gece tarifesi, kampanya, geç yayımlanan fiyat: hepsi `getRate`'in `at` ile yaptığı bir seçimdir (bkz. [B13, B23](/pricemeter/recipes/)).
+
+## Kapsam dışı
+
+Fiyat tablosu ve sürümleme, takvim, dönem kapanışı, sayaçlar, tampon, kuyruk, bakiye kapısı (commit'in içi), fatura, vergi, ödeme, abonelik, kupon, kur, admin UI, HTTP, zamanlayıcı, raporlama. Görüşlü bir ürün (Lago benzeri ya da Cellonay'in kendi faturalama katmanı) bunların üstüne yazılır.
+
+## Giriş testi
+
+Bir şey çekirdeğe ancak şu üç koşulla girer:
+
+1. gözlem → tutar → plan zincirinde bir adımsa;
+2. `Rate` ya da katalog verisiyle ifade ediliyorsa ya da saf hesaplamaysa;
+3. üç örnekten en az ikisinde gerekiyorsa.
+
+**Modül testi.** Bir modül çekirdeğe yalnızca dört dikişten bağlanır: `getRate` üretmek, gözlem miktarı üretmek, plan kalemi üretmek, saf hesap. Dördünün dışına çıkmak zorunda kalan modül ya çekirdekte gerçek bir eksik bulmuştur ya yanlış tasarlanmıştır. Bkz. [Modüller](/pricemeter/modules/rates/).
+
+## Neden mevcut bir platform değil
+
+Lago, Orb, Metronome, OpenMeter ayrı servislerdir. `pricemeter` gömülüdür: senkron prepaid kapı, Cloudflare Durable Object içinde atomik yazım, fatura dışı kapsam ve kodda tip güvenli katalog için. Platformlar referanstır, rakip değil.

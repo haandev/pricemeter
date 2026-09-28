@@ -423,3 +423,16 @@ export function requiresUsage(r: Rate, hasCarry = false): boolean {
   if (r.policy?.rounding === "cumulative" && !hasCarry) return true;
   return false;
 }
+
+/**
+ * `cumulative` rounding on a `volume` rate without `on_crossing` has no running total to derive the
+ * remainder from, so it needs `carry` from the caller; without it every sub-micro amount would be lost.
+ */
+export function requiresCarry(r: Rate): boolean {
+  return r.model === "volume" && r.policy?.adjustmentTiming !== "on_crossing" && r.policy?.rounding === "cumulative";
+}
+
+/** `usage_required` check shared by `price()` and holds: position (and, where needed, carry) must be known. */
+export function missingPosition(r: Rate, usedSoFar: number | undefined, carry: number | undefined): boolean {
+  return (usedSoFar === undefined && requiresUsage(r, carry !== undefined)) || (carry === undefined && requiresCarry(r));
+}

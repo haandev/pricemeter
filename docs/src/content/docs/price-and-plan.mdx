@@ -1,0 +1,73 @@
+---
+title: price() ve plan
+description: Plan, LedgerOp, UsageRow; refId kuralları; sıfır tutarlar; gömülü mod.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`price()` kütüphanenin gerçek çekirdeğidir: saf, adapter'sız, I/O'suz. `observe` yalnızca "getRate çek → `price()` → commit" sarmalayıcısıdır. Görüşlü bir ürün `price()`'ı doğrudan kullanabilir.
+
+## `price()`
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="price" />
+
+Girdi `PricedLine[]`'dır: tarifesi (`ValidRate`) ve `usedSoFar`'ı eklenmiş satırlar. Çıktı `{ result, plan, rated }`; `rated[i]`, i. satırın `rate()` sonucudur (`breakdown`, `tierIndex`, `carry`, `holdUpperBound`, `clamped`). Kök `price()` havuz genişletmesi yapmaz; katalogdaki `metering.price(lines, ref, ctx, { pools })` `feeds`'i uygular, eksik havuz satırının tarifesini `opts.pools`'tan alır.
+
+## Plan
+
+Plan, kütüphanenin tek çıktısıdır. `commit` onu **ya hep ya hiç** yazmalı ve tekrarlanan `(refType, refId)`'yi sessizce atlamalıdır.
+
+<Source file="packages/core/src/plan.ts" decl="Plan, LedgerOp, UsageRow" />
+
+| `LedgerOp.op` | Anlamı | `amount` |
+| --- | --- | --- |
+| `charge` | Para hareketi | pozitif = borç; negatif = alacak (hacim düzeltmesi, kredi) |
+| `hold` | Hold için rezervasyon | hold'un üst sınırı |
+| `extend` | Rezervasyonu büyütür | üst sınır farkı |
+| `capture` | Rezervasyondan tahsil | yakalanan tutar |
+| `release` | Kalanı serbest bırakır | `upperBound − captured` |
+
+`UsageRow.detail` satırın nasıl fiyatlandığını taşır: `breakdown` (kademe dilimleri), havuz satırında `feeder` ve `weight`, `clamped`, hold satırlarında `holdId`, düzeltme satırında `adjustment: true`, `cumulative`'de `carry`. `rateId`, tarifenin `id`'sidir: her satır onu fiyatlayan tarifeye kadar izlenebilir.
+
+## `refId` kuralları
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="refids" />
+
+| Satır | `refId` |
+| --- | --- |
+| Gözlem satırı | `{refType}:{ref.id}:{meter}` |
+| Aynı çağrıda aynı sayaç tekrar ederse | `…#2`, `…#3` (A84) |
+| Havuz satırı | `{refType}:{ref.id}:{feeder}:{pool}` |
+| Hacim düzeltmesi | `{satırın refId'si}:adj` (A81) |
+| Hold | `{refType}:{ref.id}:hold` — `holdId` = `{refType}:{ref.id}` |
+| Extend | `{holdId}:extend:{n}` |
+| Capture | `{refType}:{ref.id}:{meter}:capture:{n}` (A87); havuz satırı `…:{feeder}:{pool}:capture:{n}` |
+| Release | `{holdId}:release` |
+
+`refId` tamamen `ref` ve satır sırasından türetilir; aynı çağrı aynı planı üretir. Uygulama retry'ının güvenli olması buradan gelir: `commit` ikinci planı no-op yapar.
+
+<Aside>
+Aynı `ref` ile **farklı** satırlar gönderirsen (ör. miktar değişti), `refId`'ler aynı kalır ve `commit` yeni satırları atlar. Farklı bir gözlem farklı bir `ref.id` ister.
+</Aside>
+
+## Hacim düzeltmesi
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="adj" />
+
+`Rated.totalMicroUsd` düzeltmeyi içermez (A81): usage satırı gözlemin kendi tutarıdır, düzeltme `…:adj` refId'li ayrı bir usage satırı (`quantity: 0`, `detail.adjustment: true`) ve ayrı bir `charge`'dır. `result.charged` ikisinin toplamıdır ve negatif olabilir.
+
+## Sıfır tutarlar
+
+Tutarı 0 olan satır **usage'a yazılır, ledger'a yazılmaz** (A85). "Ücretsiz ama sayılır": 0 fiyatlı tarife, havuzun bedava dilimi ve `ifMissing: "free"` bu yüzden `usedSoFar` sayaçlarını ilerletir ama boş ledger kalemi üretmez. Hem ledger'ı hem usage'ı boş bir plan için `commit` hiç çağrılmaz.
+
+## Gömülü mod
+
+Sayaçlar ve bakiye tek bir atomik yerdeyse (Cloudflare'de hesabın Durable Object'i), fiyatlamayı da oraya taşımak yarışı kapatır: Worker planı kendi görüşüyle çıkarır, Durable Object satırları **kendi sayaçlarıyla** yeniden fiyatlar ve aynı adımda uygular.
+
+1. Worker: `metering.plan.observe(...)` → `{ result, plan, lines }`. `lines` fiyatlanmış satırlardır (havuz satırları dahil, tarifeleriyle; A91).
+2. Durable Object: `usedSoFar`'ı kendi sayacından doldurur, `catalog.price(lines, ref, ctx)` çağırır, çıkan planı `transactionSync` içinde uygular. Arada `await` yoktur; DO'nun giriş kapısı bunu atomik yapar.
+
+<Source file="examples/messaging/src/account.ts" decl="AccountCore" />
+
+Bkz. [mesajlaşma örneği](/pricemeter/examples/messaging/) ve [Cloudflare adapter'ı](/pricemeter/adapters/#cloudflare).

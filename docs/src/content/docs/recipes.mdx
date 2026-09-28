@@ -1,0 +1,31 @@
+---
+title: Tarifler
+description: B1–B27 ve L1–L11 senaryoları; her biri examples/recipes altında çalışan bir test.
+tableOfContents: false
+---
+
+import RecipeTable from "~/components/RecipeTable.astro";
+import RecipeList from "~/components/RecipeList.astro";
+
+Her senaryo `examples/recipes/` altında tek bir test dosyasıdır ve `bun run test` ile çalışır. Bu sayfa derleme anında o klasörden üretilir: yeni bir dosya eklendiğinde burada kendiliğinden görünür. Açıklamalar dosyaların baş yorumlarından gelir ve İngilizcedir.
+
+**B** satırları iş senaryolarıdır; **L** satırları Lago'nun ücret modellerinin ve kavramlarının `pricemeter`'deki karşılığıdır.
+
+**Katman** senaryonun nerede çözüldüğünü söyler:
+
+| Katman | Anlamı |
+| --- | --- |
+| çekirdek | Yalnızca `Rate`, katalog ve `observe`/`hold` ile |
+| modül | İsteğe bağlı bir modülle (`/rates`, `/gauge`, `/adjustments`, `/calendar`) |
+| tarif | Uygulamanın `getRate`'te ya da gözlemden önce yaptığı bir seçimle |
+| kapsam dışı | Kütüphanenin işi değil; en yakın desen gösterilir |
+
+<RecipeTable lang="tr" />
+
+## B — İş senaryoları
+
+<RecipeList group="B" lang="tr" />
+
+## L — Lago karşılıkları
+
+<RecipeList group="L" lang="tr" />

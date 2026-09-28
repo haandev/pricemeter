@@ -1,0 +1,92 @@
+---
+title: observe ve hold
+description: observe seçenekleri, üç durum, hold değer nesnesi, extend, teleskopik capture, release ve Result nedenleri.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`observe`, `hold`, `extend`, `capture` ve `release` bağlı katalogdadır. Her biri satırları genişletir (`feeds`), `getRate`'i çağırır, `price()`'ı çalıştırır, `commit` eder ve bir sonuç döner. Planı görmek için `metering.plan.<aynı çağrı>`: aynı imza, `commit` yok, `{ result, plan, lines }` döner.
+
+## `observe`
+
+İki imza: tek satır ve çok satır.
+
+```ts
+metering.observe(meter, dims, quantity, ref, ctx, opts?)
+metering.observe([{ meter, dims, quantity }, …], ref, ctx, opts?)
+```
+
+Çok satırlı bir `observe` tek, tutarlı bir gözlemdir: tek plan, tek `commit`, ya hep ya hiç. `quantity` negatif olmayan bir tamsayıdır; birim senin seçimindir (mesaj, token, dakika, koltuk-saniye, mikro-USD işlem tutarı).
+
+| Seçenek | Anlamı | Varsayılan |
+| --- | --- | --- |
+| `at` | Gözlem zamanı (epoch ms); `getRate`'e ve usage satırına gider | `Date.now()` |
+| `usedSoFar` | `getRate`'inkini ezer; tek satırda sayı, çok satırda `{ [meter]: sayı }` | — |
+| `ifMissing` | `getRate` `null` dönerse: `reject` (hiçbir şey yazma, `no_price`) ya da `free` (0 ile say ve yaz) | `reject` |
+| `feeds` | `false`: havuz genişletmesi yapma | `true` |
+
+## Üç durum
+
+| Durum | Ne olur |
+| --- | --- |
+| Tarife var, fiyatı 0 | Ücretsiz **ve** fiyatlı: sayılır, usage'a 0 yazılır, ledger'a yazılmaz |
+| `getRate` → `null`, `ifMissing: "reject"` | `{ ok: false, reason: "no_price", meter }`; hiçbir şey yazılmaz |
+| `getRate` → `null`, `ifMissing: "free"` | 0 fiyatlı tek kademeli tarifeyle sayılır ve yazılır |
+
+`no_price` bir hata değil bir durumdur: fiyatı geç yayımlanan bir kalem (WhatsApp pencere fiyatları gibi) kuyruğa alınıp aynı `at` ile yeniden denenebilir ([mesajlaşma örneği](/pricemeter/examples/messaging/)).
+
+## Hold: değer nesnesi
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="hold" />
+
+- `hold` çok satırlı bir rezervasyondur. Her satırın tarifesi ve `usedSoFar`'ı **hold'un içine gömülür**; uygulama hold'u saklar (ör. OTP kaydının üstünde), kütüphane ledger'dan okumaz.
+- Her çağrı hold'un **güncellenmiş** hâlini döner (`result.hold`, A87). Sonraki çağrıya bu yeni değeri ver. Aynı eski hold ile retry aynı `refId`'yi üretir ve `commit`'te no-op olur.
+- Rezervasyon her satırın [hold üst sınırıdır](/pricemeter/rate-models/#hold-üst-sınırı); havuz satırları da ayrılır. Hold `charged: 0` döner: rezervasyon para hareketi değildir.
+- Bir hold'da her `(meter, dims)` için **tek satır** vardır (A101): aynı anahtarlı satırlar birleşir, havuz satırı besleyicilerini `feeders[]` olarak taşır. Hold her anahtarı bir kez yuvarlar: `cumulative`'de ayrı satırlı bir `observe` ile birebir aynıdır, `per_event_up`'ta yalnızca yuvarlama kadar (satır başına en fazla 2 mikro birim) farklıdır, iki yönde de.
+- `extend` hold'u büyütür: var olan `(meter, dims)` satırları kendi tarifesiyle büyür, `getRate` yalnızca yeni satırlar için çağrılır; havuz satırları besleyenlerini izler.
+- `capture` gerçekleşeni tahsil eder. Satır `meter` ile bulunur; aynı sayaç birden çok satırdaysa `dims` gerekir. Havuz satırları besleyenleriyle birlikte yakalanır. Kısmi ve tekrarlı capture serbesttir.
+- `release` kalan rezervasyonu (`upperBound − captured`) serbest bırakır ve hold'u kapatır.
+
+## Teleskopik capture
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="telescoping" />
+
+Kısmi capture'lar hold'u tek bir gözlem gibi yuvarlar: n. capture `R(u, c+q) − R(u, c)` tahsil eder; `u` hold anındaki `usedSoFar`, `c` o ana kadar yakalanan adettir (A88). Aksi hâlde `per_event_up` parçalı capture'da üst sınırı aşardı.
+
+## Capture anının tarifesi
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="capturerate" />
+
+Varsayılan olarak capture, hold'daki tarifeyi kullanır ve `getRate`'i tekrar çağırmaz: özel fiyat sona erse bile açık hold eski fiyatı korur (B20). Capture anının fiyatını isteyen `{ rate }` verir: tek bir tarife ya da `{ [meter]: Rate }`. Toplam yine hold'un üst sınırını aşamaz.
+
+## `hold_exceeded` ve `hold_closed`
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="closed" />
+
+`hold_exceeded`: bir satırda yakalanan adet ayrılanı aşıyor ya da toplam tutar üst sınırı aşıyor. `hold_closed`: hold `release` edilmiş (A86). İkisinde de hiçbir şey yazılmaz; önce `extend` et.
+
+## Result nedenleri
+
+Başarı: `{ ok: true, charged, lines }` (hold/capture'da ayrıca `holdId`, `hold`; hold'da `upperBound`). `charged` bu çağrının net para hareketidir: tahsilatlar, capture'lar ve düzeltmeler; rezervasyon değil.
+
+| `reason` | Ne zaman | Yazılan |
+| --- | --- | --- |
+| `no_price` | `getRate` `null` döndü, `ifMissing: "reject"` | hiçbir şey |
+| `usage_required` | Tarife `usedSoFar` istiyor, verilmedi | hiçbir şey |
+| `insufficient_credit` | `commit` `InsufficientCredit` fırlattı (isimle de eşleşir, RPC'den geçer) | hiçbir şey |
+| `invalid_context` | Bağlam şemadan geçmedi, `accountId` string değil ya da hold başka hesabın | hiçbir şey |
+| `invalid_dims` | Boyutlar sayacın şemasından geçmedi | hiçbir şey |
+| `invalid_rate` | `getRate`'in ya da capture `{ rate }`'in döndüğü tarife `validateRate`'ten geçmedi | hiçbir şey |
+| `invalid_ref` | `ref` şekli yanlış ya da `ref.type` `refs()` içinde değil | hiçbir şey |
+| `hold_exceeded` | Capture ayrılanı ya da üst sınırı aşıyor | hiçbir şey |
+| `hold_closed` | Hold zaten `release` edilmiş | hiçbir şey |
+| `commit_failed` | `commit` başka bir hata fırlattı; hata `cause`'ta | `commit`'in atomikliğine bağlı: hiçbir şey olmalı |
+
+<Aside type="caution" title="Değer değil, istisna">
+Programcı hataları `Result` değil istisnadır: katalogda olmayan bir sayaç, negatif ya da tamsayı olmayan `quantity`, hold'da olmayan ya da belirsiz (`dims` verilmemiş) bir capture satırı, geçersiz bir `feeds` ağırlığı ve adapter'ları bağlanmamış bir katalogda `observe` (TypeScript bunu zaten derleme anında yakalar).
+</Aside>
+
+## Bakiye kapısı
+
+"Bakiye ≥ tutar" kütüphanede değildir. `commit` yetersiz bakiyede `InsufficientCredit` fırlatır, lib `insufficient_credit` döner. Hold ve extend de borç sayılır: prepaid bir `commit` ayrılabilir bakiyeyi aşan rezervasyonu reddeder. Postpaid = `commit` hiç fırlatmaz (B26).

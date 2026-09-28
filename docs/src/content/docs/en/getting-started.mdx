@@ -1,0 +1,61 @@
+---
+title: Getting started
+description: A catalog, the in-memory adapter and a first observe in 10 minutes.
+---
+
+import { Steps } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+The code on this page comes from `docs/src/snippets/getting-started.test.ts` and runs with `bun run test`, so the page cannot show code that does not work.
+
+## Install
+
+```sh
+bun add pricemeter zod   # or npm i / pnpm add
+```
+
+`zod` is optional: dimension and context schemas can use any [Standard Schema](https://standardschema.dev) library (zod, valibot, arktype), or no schema at all. `pricemeter` has no runtime dependencies; it ships ESM + CJS and runs on Node ≥ 20, Bun and Workers.
+
+## 1. Catalog, tariff, adapter
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="setup" />
+
+<Steps>
+
+1. **A tariff (`Rate`)** carries every tier. `rate()` decides which tier an observation lands in; amounts are integer micro-units (`20_000` = $0.02).
+
+2. **`memoryAdapters`** (`pricemeter/testing`) is an in-memory `getRate` + `commit` for tests and examples: it counts `usedSoFar` from the rows it wrote and, with `prepaid: true`, throws `InsufficientCredit` when the balance is short.
+
+3. **`buildMetering()`** is one chain; there is no `build()` step. `.bind(mem)` binds the catalog to these adapters; in production you pass your own `getRate` and `commit` instead.
+
+</Steps>
+
+## 2. First observe
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="observe" />
+
+`observe` validates the context and dimensions, asks `getRate` for the tariff and `usedSoFar`, computes the amount with `price()`, hands the plan to `commit` and returns the result. The plan is two lists: **ledger** rows that move money and **usage** rows that record consumption.
+
+## 3. Retries are safe
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="retry" />
+
+Every row's `refId` is derived from the `ref` (`otp_send:msg_1:otp/sms`). When `commit` sees the same `(refType, refId)` again it writes nothing. The library does not know it is a retry — the result still says `charged: 40000`, “the price of this call”, not “the amount written” (A99) — but the balance does not move.
+
+## 4. Failures are values
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="failures" />
+
+When the result is `{ ok: false, reason }`, nothing was written. The balance check is not in the library but inside `commit`: only the ledger can check “balance ≥ amount” in the same atomic step as the write. All reasons: [observe and hold → Result](/pricemeter/en/observe-and-hold/#result-reasons).
+
+## 5. See the plan without writing it
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="plan" />
+
+`metering.plan.*` takes the same arguments, never calls `commit`, and returns `{ result, plan, lines }`. Use it in tests, or when the plan is applied somewhere else (e.g. inside a Durable Object).
+
+## Next
+
+- [The “how much / when” boundary](/pricemeter/en/boundary/): what lives in the library and what stays in your app.
+- [Catalog](/pricemeter/en/catalog/) and [Tariffs and models](/pricemeter/en/rate-models/).
+- [Writing adapters](/pricemeter/en/adapters/): a `commit` for a real database.

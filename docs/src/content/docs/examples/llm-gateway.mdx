@@ -1,0 +1,35 @@
+---
+title: "Örnek: LLM gateway (SQLite)"
+description: Milyon token başına fiyat, cumulative yuvarlama, dakikalık tampon, kredi havuzu, ömürlük ücretsiz kota, CRM indirimi.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/llm-gateway`: SQLite üzerinde bir LLM gateway. Postpaid; `commit` bakiyeye bakmaz.
+
+```sh
+bunx vitest run examples/llm-gateway
+```
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="/**" to="^ \*/" />
+
+## Tarifeler
+
+<Source file="examples/llm-gateway/src/gateway.ts" decl="perMillion, CREDIT_RATE" />
+
+- **Girdi token'ı** milyon başına fiyatlanır (`per: 1_000_000`) ve `cumulative` yuvarlanır: tek tek yukarı yuvarlansa her küçük çağrı en az 1 mikro-USD olurdu; kümülatif yuvarlama ayın toplamını kesin tutar (B2).
+- İlk 1M girdi token'ı model başına **ömür boyu** ücretsizdir: `usedSoFar` tüm zamanlar üzerinden sayılır (`tierPeriod: "lifetime"`, B16).
+- **Çıktı token'ı** yalnızca sayılır (0 fiyat) ve kredi havuzunu model ağırlığıyla besler (opus 5, sonnet 3, haiku 1). Para krediler üzerinden akar.
+- **Krediler** `volume` + `on_crossing` ile fiyatlanır: ay 10M krediyi geçince ayın **tamamı** ucuz kademeden hesaplanır, önceki kredilerin farkı ayrı bir `…:adj` kalemidir (B6).
+
+## Katalog ve `getRate`
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="const metering = buildMetering()" to="^    \.commit\(" />
+
+CRM indirimi bağlamdan gelir ve `getRate` içinde `applyDiscount` ile her tarifeye uygulanır (B19). Aylık kredi sayacı `monthWindow({ at })` penceresinden okunur.
+
+## Dakikalık tampon
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="async flush(now: number)" to="^    \}," />
+
+Çağrılar `(hesap, model, dakika)` başına tamponlanır ve dakika bitince tek bir çok satırlı `observe` olarak yazılır. Ref `{ type: "batch", id: "{hesap}:{model}:{dakika}" }` olduğu için `flush` tekrar çağrılabilir: aynı parti `commit`'te no-op'tur. Başarısız parti tampona geri konur. Üretimde tampon bir Durable Object ya da Redis'tir; desen aynıdır. Tampon ve zamanlama kütüphanenin değil uygulamanın işidir.

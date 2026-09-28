@@ -1,0 +1,36 @@
+---
+title: "Example: SaaS seats (SQLite)"
+description: Prorated seats, monthly peak storage, a layered price table, EUR accounts, a minimum commitment and a subscription-anchored cycle.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/saas-seats`: seats and storage, billed per billing cycle anchored on the subscription day, on SQLite.
+
+```sh
+bunx vitest run examples/saas-seats
+```
+
+<Source file="examples/saas-seats/src/billing.ts" from="/**" to="^ \*/" />
+
+## Price table
+
+<Source file="examples/saas-seats/src/billing.ts" decl="PRICE_ROWS" />
+
+Scopes are `account:{id}` > `plan:{plan}:{currency}` > `list:{currency}`. EUR accounts read EUR rows; the `Rate` itself has no currency (B17). The first 10 GB are included.
+
+## Catalog and `getRate`
+
+<Source file="examples/saas-seats/src/billing.ts" from="const table = layeredRates" to="^    \.commit\(" />
+
+A seat's price is its monthly price per cycle; because the quantity is seat-seconds, `getRate` sets every tier's `per` to the cycle's seconds. A seat added halfway costs half (B9). `usedSoFar` is read over the cycle window.
+
+## Closing a cycle
+
+<Source file="examples/saas-seats/src/billing.ts" from="async closeCycle(" to="^    \}," />
+
+1. `integrate` reduces level samples to two quantities: seat-seconds (`time_weighted`) and peak GB (`max`, B10).
+2. One multi-line `observe` with a period ref (`{account}:{cycle key}`) and `at: cycle.to − 1` (A98).
+3. `minimumCommit` tops the enterprise plan up to its monthly minimum (B12), written with `metering.commit(plan)`.
+
+Both steps are idempotent: a cron that closes the same cycle twice writes nothing twice.

@@ -1,0 +1,42 @@
+---
+title: /rates
+description: A layered price table (scopes, wildcard dims, effectiveFrom versions) and tariff helpers.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates" />
+
+`pricemeter/rates` is an optional price table that produces a ready `getRate`. Its seam in the module test is “producing a `getRate`”; the core never sees it.
+
+## Resolution
+
+`resolveLayered({ rows, scopes, dims, at, meter })` picks in this order:
+
+1. **Scope** order: the array `scopes(ctx)` returns, most specific first (`account:…` > `plan:…` > `list`). Scope names carry no meaning; you give the order.
+2. Within a scope, the **most specific matching** row: one point per exactly matched dimension; a missing key or `"*"` matches anything but scores nothing.
+3. On a tie, the **latest** `effectiveFrom` (≤ `at`).
+4. If the winning row is `removed: true`, the scope falls through to the next one. No row in any scope returns `null` → `no_price`.
+
+If the winning tariff has no `id`, the row's `id` is used, so the usage row's `rateId` points at the price-table row.
+
+| API | What it does |
+| --- | --- |
+| `layeredRates({ loadRows, scopes, cacheMs?, usedSoFar?, now? })` | A ready `getRate`. `loadRows(meter, ctx)` is your query; cached per `(meter, scopes)` for `cacheMs`. When `usedSoFar(meter, dims, ctx, at, rate)` is given, its answer is added |
+| `resolveLayered({ rows, scopes, dims, at, meter? })` | The pure resolver; use it inside your own `getRate` |
+| `validateVersion(row)` | Validates a price row, tariff included; for an admin UI before saving |
+| `applyDiscount`, `scaleTiers`, `withPolicy` | Pure helpers that derive a new tariff from one |
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates-helpers" />
+
+`applyDiscount` rounds unit prices and flat fees to the nearest micro-unit and appends `-{percent}pct` to the `id` (a CRM discount, B19). `scaleTiers` multiplies tier thresholds (an enterprise account reaches the cheaper tier sooner).
+
+`/rates` knows prices, not `usedSoFar`: the counter lives in your store. Examples: [SaaS seats](/pricemeter/en/examples/saas-seats/) uses `layeredRates` + a cycle window; [messaging](/pricemeter/en/examples/messaging/) uses `resolveLayered` with a route-cost fallback.
+
+## How you'd do it without this
+
+`getRate` is a function; if you already have a price table, query it directly:
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates-without" />
+
+Specificity, wildcards, versions and “removed” rules differ per product; this module only ships one common shape. If your table resolves in a different order (say channel first, then account), write your own `getRate`; the library cannot tell the difference.

@@ -1,0 +1,73 @@
+---
+title: price() and the plan
+description: Plan, LedgerOp, UsageRow; refId rules; zero amounts; embedded mode.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`price()` is the library's real core: pure, adapter-free, no I/O. `observe` is only the “get the rate → `price()` → commit” wrapper. An opinionated product can use `price()` directly.
+
+## `price()`
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="price" />
+
+The input is `PricedLine[]`: lines with their tariff (`ValidRate`) and `usedSoFar` attached. The output is `{ result, plan, rated }`; `rated[i]` is `rate()`'s answer for line i (`breakdown`, `tierIndex`, `carry`, `holdUpperBound`, `clamped`). The root `price()` does no pool expansion; the catalog's `metering.price(lines, ref, ctx, { pools })` applies `feeds` and takes missing pool lines' tariffs from `opts.pools`.
+
+## The plan
+
+The plan is the only thing the library produces. `commit` must write it **all or nothing** and silently skip a repeated `(refType, refId)`.
+
+<Source file="packages/core/src/plan.ts" decl="Plan, LedgerOp, UsageRow" />
+
+| `LedgerOp.op` | Meaning | `amount` |
+| --- | --- | --- |
+| `charge` | Moves money | positive = debit; negative = credit (volume adjustment, credits) |
+| `hold` | Reserves for a hold | the hold's upper bound |
+| `extend` | Grows a reservation | the upper-bound difference |
+| `capture` | Charges against a reservation | the captured amount |
+| `release` | Frees the remainder | `upperBound − captured` |
+
+`UsageRow.detail` records how the row was priced: `breakdown` (tier slices), `feeder` and `weight` on pool rows, `clamped`, `holdId` on hold rows, `adjustment: true` on adjustment rows, `carry` with `cumulative`. `rateId` is the tariff's `id`, so every row traces back to the tariff that priced it.
+
+## `refId` rules
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="refids" />
+
+| Row | `refId` |
+| --- | --- |
+| Observation line | `{refType}:{ref.id}:{meter}` |
+| The same meter again in one call | `…#2`, `…#3` (A84) |
+| Pool line | `{refType}:{ref.id}:{feeder}:{pool}` |
+| Volume adjustment | `{the line's refId}:adj` (A81) |
+| Hold | `{refType}:{ref.id}:hold` — `holdId` = `{refType}:{ref.id}` |
+| Extend | `{holdId}:extend:{n}` |
+| Capture | `{refType}:{ref.id}:{meter}:capture:{n}` (A87); pool line `…:{feeder}:{pool}:capture:{n}` |
+| Release | `{holdId}:release` |
+
+`refId`s derive only from the `ref` and the line order, so the same call yields the same plan. That is what makes application retries safe: `commit` turns the second plan into a no-op.
+
+<Aside>
+If you send **different** lines with the same `ref` (say the quantity changed), the `refId`s stay the same and `commit` skips the new rows. A different observation needs a different `ref.id`.
+</Aside>
+
+## Volume adjustment
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="adj" />
+
+`Rated.totalMicroUsd` excludes the adjustment (A81): the usage row is the observation's own amount; the adjustment is a separate usage row with refId `…:adj` (`quantity: 0`, `detail.adjustment: true`) and a separate `charge`. `result.charged` is their sum and can be negative.
+
+## Zero amounts
+
+A row with amount 0 **goes to usage, not to the ledger** (A85). “Free but counted”: a zero-priced tariff, a pool's free slice and `ifMissing: "free"` all advance the `usedSoFar` counters without empty ledger items. When both ledger and usage are empty, `commit` is not called at all.
+
+## Embedded mode
+
+When counters and balance live in one atomic place (the account's Durable Object on Cloudflare), moving pricing there too closes the race: the Worker plans with its view, the Durable Object re-prices the lines **with its own counters** and applies them in the same step.
+
+1. Worker: `metering.plan.observe(...)` → `{ result, plan, lines }`. `lines` are the priced lines (pool lines included, with their tariffs; A91).
+2. Durable Object: fills `usedSoFar` from its counters, calls `catalog.price(lines, ref, ctx)`, applies the plan inside `transactionSync`. Nothing is awaited in between; the DO's input gate makes it atomic.
+
+<Source file="examples/messaging/src/account.ts" decl="AccountCore" />
+
+See the [messaging example](/pricemeter/en/examples/messaging/) and the [Cloudflare adapter](/pricemeter/en/adapters/#cloudflare).

@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["node"],
+    "noUnusedLocals": false,
+    "paths": {
+      "pricemeter": ["../packages/core/src/index.ts"],
+      "pricemeter/*": ["../packages/core/src/*/index.ts"]
+    }
+  },
+  "include": ["src/snippets/*.ts"]
+}

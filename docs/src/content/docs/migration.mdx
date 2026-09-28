@@ -1,0 +1,31 @@
+---
+title: Göç
+description: Dağınık birim fiyat kodundan pricemeter'e; Cellonay göçü planı.
+---
+
+## Dağınık birim fiyat kodundan
+
+Tipik başlangıç noktası: her uç noktada bir `price * quantity`, bir `if (monthlyCount > 10000)`, bir `UPDATE balance` ve bir retry'da iki kez düşen bakiye. Göç, bu parçaları tek tek kütüphanenin iki kapısına taşımaktır.
+
+| Bugün | pricemeter'de |
+| --- | --- |
+| Kodda sabit birim fiyatlar, `if` ile kademeler | Bir `Rate` (veri); kademe bölmeyi `rate()` yapar |
+| Fiyat tablosu sorgusu | `getRate` (ya da [/rates](/pricemeter/modules/rates/)) |
+| "Bu ay kaç tane" sayacı | `getRate`'in döndüğü `usedSoFar` |
+| `UPDATE balance … WHERE balance >= ?` | `commit` içinde; yetmezse `InsufficientCredit` |
+| Kullanım log'u | Planın `usage` satırları, `breakdown` ve `rateId` ile |
+| Retry'da çift düşüm | Kararlı `ref` → `refId`; `commit` tekrarı atlar |
+| Floatla para | Tamsayı mikro birim (`usd(0.02)` → `20_000`) |
+
+Önerilen sıra:
+
+1. **Katalogu yaz.** Her faturalanan şey bir `meter`; fiyatı değiştiren her şey bir boyut (`country`, `model`). Ortak kotalar bir havuz (`feeds`).
+2. **Tarifeleri veriye çevir.** Kodda dağınık fiyatları `Rate` nesnelerine taşı, `validateRate` ile doğrula; `rateId` her satırı tarifesine bağlar.
+3. **`getRate`'i mevcut tablona bağla.** Sayacın hangi döneme ait olduğunu (takvim ayı, döngü, ömür) burada seç.
+4. **`commit`'i mevcut transaction'ına bağla.** Ledger ve usage tabloların varsa `(refType, refId)` üzerinde tekil indeks ekle; yoksa [`pricemeter/sqlite`](/pricemeter/adapters/#sqlite) şemasıyla başla. `commitContract` ile doğrula.
+5. **Gölgede çalıştır.** Bir süre eski kodla yan yana `metering.plan.observe(...)` çağır, tutarları karşılaştır, hiçbir şey yazma. Fark yoksa yazımı pricemeter'e geçir.
+6. **Kalanları uygulamada bırak.** Fatura, vergi, kupon ve dönem kapanışı kütüphaneye taşınmaz; dönem sonu kalemleri için [/adjustments](/pricemeter/modules/adjustments/) var.
+
+## Cellonay
+
+Cellonay'in OTP ve WhatsApp faturalamasının pricemeter'e göçü **planlanıyor**. [Mesajlaşma örneği](/pricemeter/examples/messaging/) o göçün hedef şeklidir: hesap başına Durable Object ledger'ı, iki satırlı OTP hold'u, kanallar arası ortak kota ve geç yayımlanan pencere fiyatları için kuyruk.

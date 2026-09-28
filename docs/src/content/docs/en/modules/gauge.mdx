@@ -1,0 +1,35 @@
+---
+title: /gauge
+description: Turns level samples (seats, GB) into one observation quantity.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="gauge" />
+
+Seat counts, stored GB, running instances: these are **levels**, not events. `pricemeter/gauge` reduces the level samples your application keeps to one integer quantity at period end; that quantity is priced by an ordinary `observe`. Its seam in the module test is “producing an observation quantity”.
+
+| API | What it does |
+| --- | --- |
+| `window({ from, to })` | A half-open `[from, to)` window; throws when empty or not finite |
+| `integrate({ samples, window, mode, unit? })` | Integrates the step function over the window and returns an integer, rounded up |
+
+| `mode` | Result | Typical use |
+| --- | --- | --- |
+| `last` | The level at the end of the window | “how many seats at month end” |
+| `max` | The highest level in the window | the month's peak GB (B10) |
+| `time_weighted` | Level × time in `unit` (`ms`, `s`, `h`; default `s`) | seat-seconds, prorated with `per` (B9) |
+
+- A sample is `{ at, value }`: `value` holds from `at` until the next sample. Samples can come in any order; the level before the first one is 0.
+- Samples before the window set the starting level. Negative or non-finite values throw.
+- The result is rounded up with float noise removed.
+
+Proration: `time_weighted` yields seat-seconds; the tariff is `unitPriceMicroUsd: monthly price, per: seconds in the month`. A seat added halfway costs half. The period-end observation uses `at: window.to − 1` (A98). Full flow: [SaaS seats example](/pricemeter/en/examples/saas-seats/).
+
+## How you'd do it without this
+
+It is a loop of a few lines:
+
+<Source file="docs/src/snippets/modules.test.ts" region="gauge-without" />
+
+The traps: unsorted input, the starting level from before the window, the half-open window, float noise pushing an integer up by one (`ceil(2.0000000001)`), negative values. If your database already sums levels over time (`SUM(value × duration)`), you don't need the module; pass that number to `observe`.

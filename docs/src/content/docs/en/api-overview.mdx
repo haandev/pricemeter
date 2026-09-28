@@ -1,0 +1,21 @@
+---
+title: API
+description: The API reference, generated from the source code with TypeDoc.
+---
+
+import { LinkCard, CardGrid } from "@astrojs/starlight/components";
+
+The API reference is generated with TypeDoc straight from the source (`packages/core/src`) on every build and shows the JSDoc comments as written, so it is published in one language, English.
+
+<CardGrid>
+  <LinkCard title="pricemeter" description="buildMetering, rate(), price(), hold, Plan, Result, validateRate, MicroUsd" href="/pricemeter/api/pricemeter/" />
+  <LinkCard title="pricemeter/rates" description="layeredRates, resolveLayered, applyDiscount, scaleTiers, withPolicy" href="/pricemeter/api/pricemeter/rates/" />
+  <LinkCard title="pricemeter/gauge" description="integrate, window" href="/pricemeter/api/pricemeter/gauge/" />
+  <LinkCard title="pricemeter/adjustments" description="minimumCommit, flatCredit, volumeTrueUp" href="/pricemeter/api/pricemeter/adjustments/" />
+  <LinkCard title="pricemeter/calendar" description="monthKey, monthWindow, cycleKey, cycleWindow, LIFETIME" href="/pricemeter/api/pricemeter/calendar/" />
+  <LinkCard title="pricemeter/testing" description="memoryAdapters, expectPlan, commitContract" href="/pricemeter/api/pricemeter/testing/" />
+  <LinkCard title="pricemeter/sqlite" description="sqliteAdapter, schema, canonicalJson" href="/pricemeter/api/pricemeter/sqlite/" />
+  <LinkCard title="pricemeter/cloudflare" description="applyPlan, doCommit, commitReply, flushOutbox, d1UsageSink" href="/pricemeter/api/pricemeter/cloudflare/" />
+</CardGrid>
+
+For concepts, start with [Catalog](/pricemeter/en/catalog/), [Tariffs and models](/pricemeter/en/rate-models/) and [observe and hold](/pricemeter/en/observe-and-hold/).

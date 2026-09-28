@@ -1,0 +1,31 @@
+---
+title: Recipes
+description: Scenarios B1–B27 and L1–L11; each one is a running test in examples/recipes.
+tableOfContents: false
+---
+
+import RecipeTable from "~/components/RecipeTable.astro";
+import RecipeList from "~/components/RecipeList.astro";
+
+Each scenario is one test file in `examples/recipes/` and runs with `bun run test`. This page is generated from that folder at build time, so a new file shows up here on its own. The explanations come from each file's leading comment.
+
+**B** rows are business scenarios; **L** rows map Lago's charge models and concepts to `pricemeter`.
+
+**Layer** says where the scenario is solved:
+
+| Layer | Meaning |
+| --- | --- |
+| core | With `Rate`, the catalog and `observe`/`hold` alone |
+| module | With an optional module (`/rates`, `/gauge`, `/adjustments`, `/calendar`) |
+| recipe | With a choice the application makes in `getRate` or before observing |
+| out of scope | Not the library's job; the nearest pattern is shown |
+
+<RecipeTable lang="en" />
+
+## B — Business scenarios
+
+<RecipeList group="B" lang="en" />
+
+## L — Lago equivalents
+
+<RecipeList group="L" lang="en" />

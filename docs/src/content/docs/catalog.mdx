@@ -1,0 +1,84 @@
+---
+title: Katalog
+description: buildMetering zinciri, boyutlar, havuzlar, ref'ler, bağlam doğrulaması ve bind.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+Katalog tek bir nesne ve tek bir zincirdir; `build()` yoktur. Her adım aynı nesneyi döndürür ama dönüş tipini daraltır, bu yüzden **her zaman dönen referansı kullan**. Katalog sayaçların id'lerini, boyut şemalarını ve havuz beslemesini bilir; sayacın birimi, türü, dönemi, politikası yoktur.
+
+## Zincir
+
+| Adım | Ne yapar | Tip etkisi |
+| --- | --- | --- |
+| `.context(schema \| typed<C>())` ya da `.context<C>()` | Bağlam şeması; her bağlı çağrıda doğrulanır. `{ validate: "never" }` ile kapatılır | `Ctx` |
+| `.refs(schema \| ["a", "b"] \| typed<R>())` ya da `.refs<R>()` | Geçerli `ref.type` kümesi | `Ref.type` birliği |
+| `.meter(id, dims?, { feeds? })` | Sayaç ekler | `MeterId`'ye ekler, `DimsOf<id>` türetir |
+| `.getRate(fn)` | `(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } \| null` | bağlı bayrağı |
+| `.commit(fn)` | `(plan) => void`; fırlatırsa `commit_failed`, `InsufficientCredit` fırlatırsa `insufficient_credit` | bağlı bayrağı |
+| `.bind({ getRate, commit })` | Aynı katalogun **yeni** bağlı kopyası | ikisi birden |
+
+Her zaman var: `meters`, `price()`, `validateRate()`. `getRate` ve `commit` ikisi de verilince: `observe`, `hold`, `extend`, `capture`, `release`, `commit(plan)` ve `plan.*`. Bağlanmadan `observe` çağırmak derleme hatasıdır.
+
+<Source file="examples/messaging/src/catalog.ts" body />
+
+## Boyutlar: dört biçim
+
+<Source file="docs/src/snippets/catalog.test.ts" region="dims" />
+
+| Biçim | Tip | Çalışma anında doğrulama |
+| --- | --- | --- |
+| Şema kaydı `{ country: z.string() }` | şemalardan | her çağrıda, alan alan; bilinmeyen anahtar hata |
+| Nesne şeması `z.object({…})`, `v.object({…})` | şemadan | her çağrıda |
+| `typed<T>()` | `T` | yok |
+| Anahtar dizisi `["country"]` | değerler `any` | yok |
+
+Boyut değerleri string, sayı ya da enum olabilir; joker yoktur (joker eşleşme `getRate`'in işidir, bkz. [/rates](/pricemeter/modules/rates/)). Doğrulama başarısızsa sonuç `{ ok: false, reason: "invalid_dims", meter, cause }` olur. Kütüphane şema kütüphanesine bağımlı değildir, yalnızca `~standard.validate` çağırır.
+
+<Aside>
+`typed<T>()` bir değer düzeyi işaretçidir (A95): TypeScript'te kısmi generic çıkarımı olmadığı için `.meter<"x", T>()` yazılamaz. Aynı işaretçi `.context(typed<C>())` ve `.refs(typed<R>())` için de çalışır.
+</Aside>
+
+## Havuzlar: `feeds`
+
+<Source file="docs/src/snippets/catalog.test.ts" region="feeds" />
+
+- Havuz sıradan bir sayaçtır: **boyutsuz**, kendisi `feeds` almaz ve besleyenlerden **önce** tanımlanır (A89). Tip sistemi yalnızca bu koşulu sağlayan id'leri `feeds` anahtarı olarak kabul eder.
+- Ağırlık bir sayı ya da `(dims, ctx) => number` fonksiyonudur. Havuz satırının miktarı `ceil(quantity × weight)`, float gürültüsü arındırılarak: bir tamsayıya göreli 1e-9 kadar yakın değerler o tamsayıya çekilir (`10 × 1.1` 11 olur, 12 değil; A90, A104).
+- Havuz satırı kendi `getRate`'ini alır ve kendi usage satırını yazar (`detail.feeder`, `detail.weight`). Aynı çağrıda havuz satırını elle verirsen lib ikinci kez eklemez; `{ feeds: false }` genişletmeyi kapatır.
+
+`metering.meters` düz, serileştirilebilir bir görünümdür: `{ "otp/sms": { dims: ["country"], feeds: ["msg/free_pool"] } }`. Boyut anahtarları şema kaydından, anahtar dizisinden ya da bir nesne şemasından (zod `.shape`, valibot `.entries`, arktype `.props`) okunur; `typed<T>()` için `dims: []` görünür.
+
+## Tip hataları
+
+<Source file="docs/src/snippets/catalog.test.ts" region="errors" />
+
+Aynı kurallar çalışma anında da denetlenir: tanımsız havuz, boyutlu havuz, `feeds` alan bir sayacı havuz yapmak ve aynı id'yi iki kez tanımlamak `meter()` çağrısında fırlatır.
+
+## `getRate`, `commit` ve `bind`
+
+<Source file="docs/src/snippets/catalog.test.ts" region="bind" />
+
+<Aside type="caution" title="getRate dört parametreyi de yazmalı">
+`getRate` callback'i `(meter, dims, ctx, at)` parametrelerinin **dördünü de** tanımlamalıdır; kullanmadıklarını `_ctx`, `_at` diye adlandır (A94). `dims` tipi `meter` üzerinden daraldığı için argümanlar bir tuple birliğidir, TypeScript de böyle bir birliğe eksik parametreli callback'i atamaz.
+</Aside>
+
+- `getRate` o anki **tarifenin tamamını** döner, tek bir birim fiyat değil. Ham obje dönebilir; lib `validateRate` ile doğrular, geçersizse `invalid_rate` döner. `null`/`undefined` = fiyat yok → `ifMissing`.
+- Aynı çağrıda aynı `(meter, dims)` için `getRate` bir kez çağrılır.
+- `bind` katalogu değiştirmez, bağlı yeni bir kopya döner. Paylaşılan bir katalog (ör. hem Worker hem Durable Object içinde) adapter'sız kalır; her taraf kendi adapter'larını bağlar ([mesajlaşma örneği](/pricemeter/examples/messaging/)).
+
+## Bağlam ve ref doğrulaması
+
+<Source file="docs/src/snippets/catalog.test.ts" region="validation" />
+
+- Bağlam her bağlı çağrıda şemayla doğrulanır (D17/A73); şemanın dönüştürdüğü değer (`coerce`, `default`) `getRate`'e ve `feeds` fonksiyonlarına iletilir. Metering bağlamdan yalnızca `accountId`'yi okur; bu alan her durumda string olmalıdır.
+- `refs()` bir dizi, bir şema ya da yalnızca tip alabilir. Dizi/şema verilmişse `ref.type` doğrulanır, geçmezse `invalid_ref` (A86). `ref.id` her zaman string olmalıdır.
+
+## Katalogda olmayanlar
+
+`unit` (sunum), `type` (gözlemin tek şekli var: miktar), `aggregation` / `period` / `chargeTiming` / `batch` (uygulamanın zamanı), `missingPolicy` (`observe` seçeneği: `ifMissing`), `holdable` (her sayaç hold alabilir), `costBearing` / `counted` (uygulama meta'sı).
+
+## Boyut ve hız
+
+500 sayaçlı bir katalog ~0,6 sn'de tip denetiminden geçer (`bun run test:bench-types`, bütçe 2 sn). Tip durumu her adımda alias'sız bir `MeteringState<…>` olarak yazılır (A93). Pratik zincir sınırı ~800 `.meter()` çağrısıdır; TypeScript ayrıştırıcısı 1000 zincirli çağrıda yığını taşırır (A96). Daha büyük kataloglar bölünebilir.

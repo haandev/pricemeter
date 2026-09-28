@@ -1,0 +1,34 @@
+---
+import { Code } from "@astrojs/starlight/components";
+import { inline, paragraphs } from "~/lib/prose";
+import { recipes } from "~/lib/recipes";
+
+interface Props {
+  group: "B" | "L";
+  lang: "tr" | "en";
+}
+const { group, lang } = Astro.props;
+const t = {
+  tr: { layer: "Katman", none: "Bu grupta henüz dosya yok." },
+  en: { layer: "Layer", none: "No files in this group yet." },
+}[lang];
+const list = recipes().filter((r) => r.group === group);
+---
+
+{list.length === 0 && <p>{t.none}</p>}
+{
+  list.map((r) => (
+    <section class="recipe">
+      <h3 id={r.anchor}>
+        {r.id} — <span set:html={inline(r.title.replace(/\.$/, ""))} />
+      </h3>
+      {r.layer && (
+        <p class="recipe-layer">
+          <strong>{t.layer}:</strong> <span set:html={inline(r.layer)} />
+        </p>
+      )}
+      <Fragment set:html={paragraphs(r.prose)} />
+      <Code code={r.code} lang="ts" title={r.path} />
+    </section>
+  ))
+}
