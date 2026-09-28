@@ -1,0 +1,31 @@
+---
+title: Kararlar
+description: Tasarım kararları, uygulama kararları (A77–) ve kapanan açık sorular.
+---
+
+import MarkdownTable from "~/components/MarkdownTable.astro";
+
+Tasarım belgesi `design/spec.md`'dir; uygulama sırasında alınan kararlar `design/decisions.md`'de tutulur ve çelişkide o dosya geçerlidir. Tasarım aşamasının karar kaydı (Ek A, A53–A76) ve senaryo matrisi (Ek B) özgün tasarım belgesindedir; senaryoların her biri [Tarifler](/pricemeter/recipes/) sayfasında çalışan bir testtir.
+
+## Uygulama kararları (A77–)
+
+Aşağıdaki tablo derleme anında `design/decisions.md`'den okunur; dosyaya eklenen her karar burada görünür.
+
+<MarkdownTable file="design/decisions.md" />
+
+## Kapanan açık sorular
+
+| # | Soru | Karar |
+| --- | --- | --- |
+| D7 | Docs alan adı ve erişim | bun workspaces monorepo (paket + docsite); docsite Astro, GitHub Pages; paket npm |
+| D16 | Takvim yardımcıları | `/calendar` modülü (A72) |
+| D17 | Bağlam doğrulaması | her çağrı (A73) |
+| D18 | `feeds` fonksiyonu `ctx` görsün mü | evet (A74) |
+
+## Kararları okumak için birkaç ipucu
+
+- **Sessiz 0 yok** (A58, A82): `usedSoFar` gerektiren bir tarifede eksik sayaç `usage_required` döner; kütüphane asla 0 varsaymaz.
+- **Değer nesnesi** (A87, A101): hold her çağrıda güncellenmiş hâliyle döner ve `(meter, dims)` başına tek satır taşır.
+- **Tek paket** (A105): SQLite ve Cloudflare adapter'ları `pricemeter/sqlite` ve `pricemeter/cloudflare` alt yollarıdır; bağımlılıkları yoktur.
+- **Sonuç = bu çağrının fiyatı** (A99): tekrarlanan çağrı yeniden hesaplanan `charged`'ı döner; yazılıp yazılmadığını `commit` bilir.
+- **Sayaç kapsamı uygulamanın** (A100): referans adapter'lar sayaç başına sayar; boyut başına kademe bir `getRate` seçimidir.

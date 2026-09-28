@@ -1,0 +1,39 @@
+---
+/**
+ * A code excerpt from a real repository file (imported with ?raw at build time).
+ * <Source file="examples/llm-gateway/src/gateway.ts" decl="createGateway" />
+ */
+import { Code } from "@astrojs/starlight/components";
+import { body, declaration, fence, file, region, slice } from "~/lib/sources";
+
+interface Props {
+  file: string;
+  /** A top-level declaration by name, or several separated by commas. */
+  decl?: string;
+  /** A `// #region name` block. */
+  region?: string;
+  /** From the first line containing `from` to the first later line matching the regex `to`. */
+  from?: string;
+  to?: string;
+  /** The n-th fenced code block of a markdown file. */
+  fence?: number;
+  /** Whole file without its leading doc comment. */
+  body?: boolean;
+  /** Keep JSDoc above declarations. Default true. */
+  doc?: boolean;
+  title?: string;
+  lang?: string;
+  mark?: string | string[];
+}
+const p = Astro.props;
+const src = file(p.file);
+let code = src;
+if (p.decl) code = p.decl.split(",").map((d) => declaration(src, d.trim(), { doc: p.doc ?? true })).join("\n\n");
+else if (p.region) code = region(src, p.region);
+else if (p.from) code = slice(src, p.from, p.to ?? "^\\S");
+else if (p.fence !== undefined) code = fence(src, p.fence);
+else if (p.body) code = body(src);
+const lang = p.lang ?? (p.file.endsWith(".md") && p.fence === undefined ? "md" : "ts");
+---
+
+<Code code={code} lang={lang} title={p.title ?? p.file} mark={p.mark} />

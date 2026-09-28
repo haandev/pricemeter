@@ -1,0 +1,31 @@
+---
+title: Migration
+description: From ad-hoc per-unit pricing code to pricemeter; the planned Cellonay migration.
+---
+
+## From ad-hoc per-unit pricing code
+
+The typical starting point: a `price * quantity` in every endpoint, an `if (monthlyCount > 10000)`, an `UPDATE balance`, and a balance debited twice on a retry. Migrating means moving those pieces, one by one, behind the library's two doors.
+
+| Today | In pricemeter |
+| --- | --- |
+| Unit prices as constants, tiers as `if`s | A `Rate` (data); `rate()` splits tiers |
+| A price-table query | `getRate` (or [/rates](/pricemeter/en/modules/rates/)) |
+| A “how many this month” counter | The `usedSoFar` `getRate` returns |
+| `UPDATE balance … WHERE balance >= ?` | Inside `commit`; throw `InsufficientCredit` when short |
+| A usage log | The plan's `usage` rows, with `breakdown` and `rateId` |
+| Double debits on retries | A stable `ref` → `refId`; `commit` skips the repeat |
+| Money in floats | Integer micro-units (`usd(0.02)` → `20_000`) |
+
+A suggested order:
+
+1. **Write the catalog.** Everything you bill is a `meter`; everything that changes the price is a dimension (`country`, `model`). Shared quotas are a pool (`feeds`).
+2. **Turn tariffs into data.** Move prices scattered through the code into `Rate` objects and check them with `validateRate`; `rateId` ties every row to its tariff.
+3. **Wire `getRate` to your existing table.** Choose here which period a counter belongs to (calendar month, cycle, lifetime).
+4. **Wire `commit` to your existing transaction.** If you have ledger and usage tables, add a unique index on `(refType, refId)`; if not, start from the [`pricemeter/sqlite`](/pricemeter/en/adapters/#sqlite) schema. Verify it with `commitContract`.
+5. **Run in shadow.** For a while, call `metering.plan.observe(...)` next to the old code, compare amounts and write nothing. When they agree, switch the writes to pricemeter.
+6. **Leave the rest in the app.** Invoices, tax, coupons and period close do not move into the library; for period-end items there is [/adjustments](/pricemeter/en/modules/adjustments/).
+
+## Cellonay
+
+Migrating Cellonay's OTP and WhatsApp billing to pricemeter is **planned**. The [messaging example](/pricemeter/en/examples/messaging/) is the target shape of that migration: a per-account Durable Object ledger, a two-line OTP hold, a quota shared across channels, and a queue for late-published window prices.

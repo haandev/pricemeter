@@ -1,0 +1,35 @@
+---
+title: "Example: LLM gateway (SQLite)"
+description: Per-million token prices, cumulative rounding, a per-minute buffer, a credits pool, a lifetime free quota and a CRM discount.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/llm-gateway`: an LLM gateway on SQLite. Postpaid; `commit` never checks the balance.
+
+```sh
+bunx vitest run examples/llm-gateway
+```
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="/**" to="^ \*/" />
+
+## Tariffs
+
+<Source file="examples/llm-gateway/src/gateway.ts" decl="perMillion, CREDIT_RATE" />
+
+- **Input tokens** are priced per million (`per: 1_000_000`) with `cumulative` rounding: rounding each call up would make every tiny call cost at least 1 micro-USD; cumulative rounding keeps the month's total exact (B2).
+- The first 1M input tokens per model are free **for life**: `usedSoFar` is counted over all time (`tierPeriod: "lifetime"`, B16).
+- **Output tokens** are only counted (price 0) and feed the credits pool with a per-model weight (opus 5, sonnet 3, haiku 1). Money flows through credits.
+- **Credits** are priced by `volume` + `on_crossing`: once the month passes 10M credits, the **whole** month is at the cheaper tier, and the difference for earlier credits is a separate `…:adj` item (B6).
+
+## Catalog and `getRate`
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="const metering = buildMetering()" to="^    \.commit\(" />
+
+The CRM discount comes from the context and is applied to every tariff with `applyDiscount` inside `getRate` (B19). The monthly credits counter is read over the `monthWindow({ at })` window.
+
+## Per-minute buffer
+
+<Source file="examples/llm-gateway/src/gateway.ts" from="async flush(now: number)" to="^    \}," />
+
+Calls are buffered per `(account, model, minute)` and written as one multi-line `observe` when the minute is over. The ref is `{ type: "batch", id: "{account}:{model}:{minute}" }`, so `flush` can run again: the same batch is a no-op in `commit`. A failed batch goes back into the buffer. In production the buffer is a Durable Object or Redis; the pattern is the same. Buffering and scheduling are the application's job, not the library's.

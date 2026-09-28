@@ -1,0 +1,83 @@
+---
+title: Writing adapters
+description: The getRate and commit contracts, commitContract, and the SQLite and Cloudflare reference adapters.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+The library has two doors to the world: `getRate`, which asks for the tariff and usage, and `commit`, which writes the plan. Both are your code; the reference adapters are starting points.
+
+## The `getRate` contract
+
+```ts
+(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } | null | undefined   // or a Promise of it
+```
+
+- Return **the whole tariff**; `rate()` picks the tier. Raw objects are fine; the library validates them (`invalid_rate`).
+- `usedSoFar`: units this account used on this meter **in the period you choose**, so far. Required for tiered, `volume`, `package`, flat-fee and `cumulative` tariffs; missing → `usage_required` ([rules](/pricemeter/en/rate-models/#usedsofar)).
+- `carry`: `cumulative` rounding only, the previous usage row's `detail.carry`.
+- How to read `at` (event time or computation time) is your decision. Period-end observations use `at: window.to − 1`, because windows are half-open and `window.to` selects the next period (A98).
+- Counter scope is yours: the reference adapters count per meter, without dimensions. For tiers per dimension value, count with `dims` in `getRate` (`sqliteAdapter.usedSoFar({ dims })`; A100).
+- `null` = no price → `ifMissing`. A throw from `getRate` surfaces as an exception from `observe`.
+- Called once per `(meter, dims)` per call. Declare all four parameters (A94).
+
+## The `commit` contract
+
+```ts
+(plan: Plan) => void | Promise<void>
+```
+
+| Rule | Why |
+| --- | --- |
+| **All or nothing**: ledger and usage rows in one transaction | A half-written plan is an inconsistent balance |
+| **Idempotent**: skip a repeated `(refType, refId)` silently (together with `op` on the ledger) | Application retries stay safe |
+| The balance moves only for ledger rows **actually inserted** | A retry must not debit twice |
+| Prepaid: if `balance − reserved` would go below 0, throw `InsufficientCredit` and write nothing | The balance gate is in the same atomic step as the write |
+| `charge` lowers the balance (raises it if negative); `hold`/`extend` raise `reserved` and count as debits; `capture` lowers the balance; `release` frees the reservation | Available = `balance − reserved` |
+| Track what is **actually reserved** per hold: `capture` lowers the reservation by at most that, `release` frees that rather than the plan's amount (A102) | A hold retried with a different amount is written as a no-op but returns a recomputed `upperBound`; a release trusting the plan would shift the reservation |
+| Throw for anything else | The library returns `commit_failed` with the error in `cause` |
+
+`InsufficientCredit` is also matched by `name`, so it crosses RPC and realm boundaries. Empty plans (no ledger and no usage rows) never reach `commit`.
+
+## `commitContract`
+
+`pricemeter/testing` ships the contract every `commit` must satisfy as a test suite. For your adapter, write `seed` (give an account a balance) and `snapshot` (row counts and available balance):
+
+<Source file="docs/src/snippets/adapters.test.ts" region="contract" />
+
+For a postpaid adapter pass `{ prepaid: false }`; the balance checks are skipped.
+
+## SQLite
+
+`pricemeter/sqlite` works with `node:sqlite`, `bun:sqlite` and better-sqlite3 (a structural `SqliteLike`). It provides `migrate`, `commit`, `usedSoFar`, `spent`, `balance` and `credit`.
+
+<Source file="docs/src/snippets/adapters.test.ts" region="sqlite" />
+
+One `BEGIN IMMEDIATE` per plan. Rows are written with `INSERT … ON CONFLICT DO NOTHING` (not `OR IGNORE`, which also swallows NOT NULL violations); balance and reservations move only for ledger rows actually inserted:
+
+<Source file="packages/core/src/sqlite/index.ts" from="const commit: Commit" to="^  };" />
+
+Schema: `usage_events` (`UNIQUE (ref_type, ref_id)`), `ledger_entries` (`UNIQUE (type, ref_type, ref_id)`), `holds` (the amount reserved per hold), `accounts`. `dims` are stored as canonical JSON (sorted keys), so `usedSoFar({ dims })` can compare by equality.
+
+<Source file="packages/core/src/sqlite/index.ts" decl="schema" />
+
+## Cloudflare
+
+`pricemeter/cloudflare`: one Durable Object per account; the ledger, balance and `usedSoFar` counters live in the DO's SQLite storage.
+
+- `applyPlan(storage, plan, { prepaid, periodOf })` does everything inside `transactionSync`: idempotent ledger, balance gate, per-period counters and the usage outbox. A throw rolls it all back.
+- `doCommit(stub)` is the Worker-side `commit`: it routes the plan to the account's DO. Errors do not cross RPC reliably, so insufficiency comes back as a **value** (`commitReply`) and is rethrown as `InsufficientCredit` in the Worker.
+- Usage rows enter the outbox in the same transaction; `flushOutbox` + `d1UsageSink` ship them to D1 idempotently (`waitUntil` or an alarm).
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="applyPlan" />
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="commitReply, doCommit" />
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="d1UsageSink, flushOutbox" />
+
+Counters are per `(meter, period)`, independent of dimensions; the period comes from `periodOf(row)` (default: one lifetime period `"*"`). For embedded pricing see [price() and the plan → embedded mode](/pricemeter/en/price-and-plan/#embedded-mode).
+
+<Aside>
+The in-memory `memoryAdapters` ([/testing](/pricemeter/en/modules/testing/)) implements the same contract and is the shortest reference.
+</Aside>

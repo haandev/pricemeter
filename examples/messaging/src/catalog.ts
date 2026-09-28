@@ -2,7 +2,7 @@
  * The messaging catalog (Cellonay-style OTP + WhatsApp), shared by the Worker and the account Durable Object.
  * No adapters here: the Worker binds `getRate` + `commit`, the DO uses the catalog only for `price()`.
  */
-import { buildMetering } from "pricemeter";
+import { buildMetering, type Metering, type PricedLineOf, type RefOf } from "pricemeter";
 import { z } from "zod";
 
 export const Context = z.object({
@@ -25,3 +25,7 @@ export const catalog = buildMetering()
   .meter("ip/dedicated");
 
 export type Catalog = typeof catalog;
+type State = Catalog extends Metering<infer S> ? S : never;
+/** A priced line of this catalog, as `plan.observe(...).lines` returns it. */
+export type CatalogLine = PricedLineOf<State>;
+export type CatalogRef = RefOf<State>;

@@ -1,0 +1,30 @@
+---
+title: /adjustments
+description: "Period-end plan items: minimum commitment, credits, volume true-up."
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="adjustments" />
+
+`pricemeter/adjustments` is a set of pure functions that return a `Plan`; you write it with `metering.commit(plan)` (A92). When they run (cron, period close) is your application's decision. Its seam in the module test is “producing plan items”.
+
+| API | Plan | `refId` |
+| --- | --- | --- |
+| `minimumCommit({ account, minimumMicroUsd, spentMicroUsd, period, at, refType? })` | One `charge` for the shortfall (minimum − spent) if any; otherwise an empty plan | `minimum_commit:{account}:{period}` (A103), `refType` defaults to `"period"` |
+| `flatCredit({ account, amountMicroUsd, refType, refId, at })` | One **negative** `charge` (a coupon-like credit, B27) | yours |
+| `volumeTrueUp({ account, meter, dims?, rate, quantity, chargedMicroUsd, refType, refId, at })` | The whole period priced at the tier it ended in; the difference as a `charge` + usage row (`quantity: 0`, `detail.adjustment: true`) | yours |
+
+<Source file="docs/src/snippets/modules.test.ts" region="trueup" />
+
+`volumeTrueUp` pairs with `adjustmentTiming: "none"`: during the period each observation pays the tier it lands in, and the period is corrected once at the end (B6). The period total is not one observation, so `perObservation` clamps do not apply. With `on_crossing` the same correction happens immediately, with the observation ([volume adjustment](/pricemeter/en/price-and-plan/#volume-adjustment)).
+
+You supply the spend: e.g. `sqliteAdapter.spent({ account, from, to })` returns the sum of `charge` + `capture` in the period window.
+
+## How you'd do it without this
+
+A plan is just two lists; you can build it by hand:
+
+<Source file="docs/src/snippets/modules.test.ts" region="adjustments-without" />
+
+The only thing that matters is a **stable `refId`**: a cron that closes the same period twice must produce a second plan that is a no-op in `commit`. Put the account in the `refId`: ledger uniqueness on `(op, refType, refId)` spans accounts, and an account-less `refId` silently drops the second account's item.

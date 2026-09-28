@@ -1,0 +1,30 @@
+---
+/** Renders the n-th markdown table of a repository file (e.g. design/decisions.md), read with ?raw at build time. */
+import { inline, tables } from "~/lib/prose";
+import { file } from "~/lib/sources";
+
+interface Props {
+  file: string;
+  index?: number;
+}
+const t = tables(file(Astro.props.file))[Astro.props.index ?? 0];
+if (!t) throw new Error(`docs: no table #${Astro.props.index ?? 0} in ${Astro.props.file}`);
+const [head, ...rows] = t;
+---
+
+<table>
+  <thead>
+    <tr>{head!.map((c) => <th set:html={inline(c)} />)}</tr>
+  </thead>
+  <tbody>
+    {
+      rows.map((r) => (
+        <tr>
+          {r.map((c) => (
+            <td set:html={inline(c)} />
+          ))}
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

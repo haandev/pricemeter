@@ -328,7 +328,8 @@ describe("dims in three forms, and other schema libraries", () => {
     // typed and key arrays are not validated at runtime
     expect((await m.observe("c", { sku: 1 as never }, 1, { type: "t", id: "3" }, { accountId: "x" })).ok).toBe(true);
     expect((await m.observe("d", { anything: { deep: 1 } }, 1, { type: "t", id: "4" }, { accountId: "x" })).ok).toBe(true);
-    expect(m.meters.b.dims).toEqual([]);
+    expect(m.meters.b.dims).toEqual(["size"]); // arktype .props
+    expect(m.meters.a.dims).toEqual(["region"]);
     // @ts-expect-error ref not in the list
     expect(await m.observe("a", { region: "eu" }, 1, { type: "u", id: "1" }, { accountId: "x" })).toMatchObject({ reason: "invalid_ref" });
     expect(await m.observe("a", { region: "eu" }, 1, null as never, { accountId: "x" })).toMatchObject({ reason: "invalid_ref" });

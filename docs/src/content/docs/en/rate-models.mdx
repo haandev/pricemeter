@@ -1,0 +1,95 @@
+---
+title: Tariffs and models
+description: The Rate shape, three models, per, flat fees, rounding, min/max, the hold upper bound and usedSoFar.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`getRate` returns the **tariff** in force: not a single unit price, but every tier. `rate()` decides which tier usage is in and how an observation splits across tiers. Versions, scopes, effective dates and history live in the application's table; the library never sees them.
+
+## `Rate`
+
+<Source file="packages/core/src/rate.ts" decl="Tier, RatePolicy, Rate" />
+
+A `Rate` carries no currency. Amounts are integer micro-units (`MicroUsd`, 1 = 1/1,000,000); the name is historical, and for an EUR tariff the same number is micro-EUR. It is a `number`: 2^53 micro-units ≈ 9 billion major units. Internally the arithmetic is exact (BigInt rationals); rounding happens only at the end.
+
+## Three models
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="models" />
+
+| Model | Computation | Example: `usedSoFar 9990`, `quantity 20`, tiers `[0: 50000, 10000: 45000]` |
+| --- | --- | --- |
+| `graduated` | Each slice at its own tier's price; `flatMicroUsd` on first entry into a tier | 10×50,000 + 10×45,000 = **950,000** |
+| `volume` | The whole observation at the price of the tier its last unit lands in; with `on_crossing`, a separate adjustment for earlier units | 20×45,000 = **900,000**; adjustment −9,990×5,000 = **−49,950,000** |
+| `package` | `ceil((u+q)/size) − ceil(u/size)` new blocks × block price (tier prices are per block) | size 1000 → 1 new block, block 10 is in tier 2 → **45,000** |
+
+**Three models are enough:**
+
+- a single unit price = a one-tier `graduated`;
+- a flat fee = one tier, `unitPriceMicroUsd: 0`, `flatMicroUsd` (B11);
+- a percentage = `quantity` is the transaction amount, `per: 1_000_000` (29,000 / 1,000,000 = 2.9%; B22);
+- proration = scale with `per`: seat-seconds / seconds-in-month (B9).
+
+A tariff has one model. Composition comes from tier fields and multi-line `observe`; there are no nested tariffs.
+
+## `per` and flat fees
+
+- `per` is the price's denominator: `{ unitPriceMicroUsd: 150_000, per: 1_000_000 }` is $0.15 per million tokens. Default 1.
+- `flatMicroUsd` is added once, when usage **first enters** that tier, i.e. by the observation with `usedSoFar ≤ from < usedSoFar + quantity`. A flat fee on the first tier lands with the period's first observation. For a fixed fee on every observation, make every observation its own period: `getRate` returns `usedSoFar: 0` (`tierPeriod: "observation"`, A97).
+
+## Rounding
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="rounding" />
+
+| `rounding` | Computation | When |
+| --- | --- | --- |
+| `per_event_up` (default) | Each observation rounds up | Wherever the per-observation amount matters |
+| `cumulative` | `floor(T(u+q)) − floor(T(u))`, `T` = the period's exact total | Tiny unit prices (LLM tokens): the period total never drifts |
+
+`cumulative` telescopes exactly: the sum of a period's observations equals pricing the period in one go (A83). The exact total needs `usedSoFar`. Where `T` is undefined — `volume` with `adjustmentTiming: "none"` — the library needs the remainder left by the previous observation (`carry`, in `[0, 1)`): `getRate` returns it as `{ rate, usedSoFar, carry }`. Every usage row carries `detail.carry`.
+
+<Aside type="caution">
+A `volume` + `none` + `cumulative` tariff without `carry` returns `usage_required` (A106): the library does not silently assume a remainder of 0. Pass `carry` from `getRate` or on the line (the previous row's `detail.carry`), or use `per_event_up`.
+</Aside>
+
+## Per-observation min and max
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="clamp" />
+
+`policy.perObservation` clamps one observation's amount to `[minMicroUsd, maxMicroUsd]` and marks the row `clamped: "min" | "max"`. Volume adjustments are not clamped; an observation of quantity 0 is not clamped.
+
+## The hold upper bound
+
+What a hold reserves is the worst case wherever the units land (A80):
+
+- the most expensive tier's unit price (`unitPriceMicroUsd / per`) × quantity (package: `ceil(q/size)` blocks),
+- \+ **every** `flatMicroUsd` in the tariff,
+- \+ (`volume` + `on_crossing`) `usedSoFar × (pmax − pmin)`,
+- clamped by `perObservation`.
+
+`rate()` also returns it per observation as `holdUpperBound`, and it is exported as `holdUpperBound(rate, quantity, usedSoFar)`.
+
+## `usedSoFar`
+
+Units this account has used on this meter in this period so far. Tier splitting needs it, and it is **never silently assumed to be 0** (A58, A82). It is required when any of these hold:
+
+| Tariff | `usedSoFar` |
+| --- | --- |
+| More than one tier | required |
+| `volume` or `package` | required |
+| A `flatMicroUsd` on any tier (even one tier: first entry must be known) | required |
+| `cumulative` rounding without `carry` | required |
+| One-tier `graduated` without a flat fee | not needed |
+
+If missing, the result is `{ ok: false, reason: "usage_required", meter }`. Its source is `getRate`; `observe(..., { usedSoFar })` overrides it (e.g. inside a Durable Object that already holds the counter). Lines with the same `(meter, dims)` in one call advance each other's `usedSoFar` (A84). Which period's counter to read is the application's choice; `policy.tierPeriod` records that choice on the tariff as a hint and the library never reads it (see [/calendar](/pricemeter/en/modules/calendar/)).
+
+## `validateRate`
+
+<Source file="docs/src/snippets/rate-models.test.ts" region="validate" />
+
+Rules: the first tier starts at `from = 0`; `from` strictly increases; prices and flat fees are integers ≥ 0; `per` is an integer ≥ 1; `packageSize ≥ 1`, and only on `package`; `adjustmentTiming` only on `volume`; `min ≤ max`. There is no “non-increasing price” rule for `graduated`: B3's `[0: 0, 500: p]` increases (A79).
+
+Codes: `invalid_shape`, `invalid_model`, `empty_tiers`, `first_tier_from`, `invalid_from`, `tiers_not_increasing`, `invalid_price`, `invalid_per`, `invalid_flat`, `invalid_package_size`, `package_size_not_allowed`, `adjustment_timing_not_allowed`, `invalid_policy`, `min_gt_max`. Each error is `{ code, path, message }`.
+
+A successful validation returns a frozen, branded copy: `ValidRate`. `getRate` may return raw objects; callers of `price()` or `rate()` must pass a `ValidRate`. `defineRate(rate)` does the same but throws `RateError`; use it for tariffs written in code and in tests.

@@ -1,0 +1,42 @@
+---
+title: /rates
+description: Katmanlı fiyat tablosu (scope, joker boyut, effectiveFrom sürümleri) ve tarife yardımcıları.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates" />
+
+`pricemeter/rates` isteğe bağlı bir fiyat tablosudur ve hazır bir `getRate` üretir. Modül testindeki dikişi "`getRate` üretmek"tir; çekirdek onu görmez.
+
+## Çözümleme
+
+`resolveLayered({ rows, scopes, dims, at, meter })` şu sırayla seçer:
+
+1. **Scope** sırası: `scopes(ctx)`'in döndüğü dizi, en özelden en genele (`account:…` > `plan:…` > `list`). Scope adlarının anlamı yoktur; sırayı sen verirsin.
+2. Scope içinde **en özel eşleşen** satır: boyut başına tam eşleşme bir puan; eksik anahtar ya da `"*"` her şeyle eşleşir ama puan getirmez.
+3. Eşitlikte **en geç** `effectiveFrom` (≤ `at`).
+4. Kazanan satır `removed: true` ise bu scope düşer, sıradakine geçilir. Hiçbir scope'ta satır yoksa `null` → `no_price`.
+
+Kazanan tarifenin `id`'si yoksa satırın `id`'si verilir; usage satırındaki `rateId` böylece fiyat tablosundaki satıra işaret eder.
+
+| API | Ne yapar |
+| --- | --- |
+| `layeredRates({ loadRows, scopes, cacheMs?, usedSoFar?, now? })` | Hazır `getRate`. `loadRows(meter, ctx)` senin sorgun; `(meter, scopes)` başına `cacheMs` kadar önbellek. `usedSoFar(meter, dims, ctx, at, rate)` verilirse cevaba eklenir |
+| `resolveLayered({ rows, scopes, dims, at, meter? })` | Saf çözümleyici; kendi `getRate`'inin içinde kullan |
+| `validateVersion(row)` | Bir fiyat satırını (tarifesiyle birlikte) doğrular; admin UI kaydetmeden önce |
+| `applyDiscount`, `scaleTiers`, `withPolicy` | Bir tarifeden yeni bir tarife türeten saf yardımcılar |
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates-helpers" />
+
+`applyDiscount` birim fiyatları ve sabit ücretleri en yakın mikro birime yuvarlar ve `id`'ye `-{percent}pct` ekler (CRM indirimi, B19). `scaleTiers` kademe eşiklerini çarpar (kurumsal hesap indirimli kademeye daha erken ulaşır).
+
+`/rates` fiyatın kendisini bilir, `usedSoFar`'ı bilmez: sayaç senin deponda. Örnekler: [SaaS koltuk](/pricemeter/examples/saas-seats/) `layeredRates` + döngü penceresi; [mesajlaşma](/pricemeter/examples/messaging/) `resolveLayered` + rota maliyeti yedeği.
+
+## Bunu kullanmadan nasıl yapardım
+
+`getRate` bir fonksiyondur; fiyat tablon zaten varsa onu doğrudan sorgula:
+
+<Source file="docs/src/snippets/modules.test.ts" region="rates-without" />
+
+Özellik tablosu, joker, sürüm ve "kaldırıldı" kuralları ürününe göre değişir; bu modül yalnızca yaygın bir biçimini verir. Tablon farklı bir sırayla çözülüyorsa (ör. kanal önce, hesap sonra) kendi `getRate`'ini yaz; kütüphane farkı görmez.

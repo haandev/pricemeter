@@ -20,3 +20,5 @@ jobs:
       - run: bun run coverage
       - run: bun run test:bench-types
       - run: bun run build
+      - run: bun run --cwd docs test
+      - run: bun run --cwd docs build

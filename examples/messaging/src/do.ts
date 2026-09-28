@@ -1,9 +1,9 @@
 /** The Durable Object Cloudflare instantiates: one per account, a thin wrapper over AccountCore. */
 import { DurableObject } from "cloudflare:workers";
-import type { Plan, PricedLine, Ref } from "pricemeter";
+import type { Plan } from "pricemeter";
 import { d1UsageSink } from "pricemeter/cloudflare";
 import { AccountCore } from "./account.js";
-import type { Context } from "./catalog.js";
+import type { CatalogLine, CatalogRef, Context } from "./catalog.js";
 import type { Env } from "./worker.js";
 
 export class AccountDO extends DurableObject<Env> {
@@ -23,7 +23,7 @@ export class AccountDO extends DurableObject<Env> {
   used(meter: string, period: string) {
     return this.#core.used(meter, period);
   }
-  observeEmbedded(lines: PricedLine[], ref: Ref, ctx: Context) {
+  observeEmbedded(lines: CatalogLine[], ref: CatalogRef, ctx: Context) {
     const r = this.#core.observeEmbedded(lines, ref, ctx);
     this.ctx.waitUntil(this.#core.flush());
     return r;

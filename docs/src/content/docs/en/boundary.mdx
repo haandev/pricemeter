@@ -1,0 +1,55 @@
+---
+title: The “how much / when” boundary
+description: What pricemeter owns and what it leaves to your application.
+---
+
+`pricemeter` is a dumb library that owns exactly one question: **how much**. The application gives it the tariff and the usage so far; the library computes the amount and says what to write. **When, where and who** — counting, storage, calendars, buffers, queues, balances, HTTP, UI — belong entirely to the application.
+
+## Data flow
+
+Two inputs, two outputs:
+
+```text
+  tariff + usedSoFar  ──(getRate)──┐
+                                   ├──► rate() / price() ──► Result   (to the app)
+  observation: meter, dims, qty ───┘                    └──► Plan     (to commit)
+```
+
+`rate()` and `price()` are pure. `observe` is a thin layer around them: `getRate` → `price` → `commit`.
+
+## Who owns what
+
+| Library (how much) | Application (when / where / who) |
+| --- | --- |
+| The `Rate` shape and its validation | Price table, versioning, admin UI (`/rates` is optional) |
+| Three models, `per`, flat fees, rounding, min/max, volume adjustment | Which instant to price at (interpreting `at` is `getRate`'s job) |
+| Splitting across tiers with `usedSoFar` | Counting `usedSoFar`, choosing the period, calendars (`/calendar` is optional) |
+| Hold upper bound, telescoping captures | Storing the hold (a value object) |
+| The ledger + usage plan with idempotent `refId`s | Writing the plan atomically and idempotently (`commit`) |
+| Catalog: typed meter ids, dimension schemas, `feeds` | Balance gate, queues, buffers, schedulers, invoices, tax, payments, FX |
+
+## Why the balance gate is not in the library
+
+If “balance ≥ amount” and the write are not in the same atomic boundary, there is a race. Only the place that holds the ledger can close it: one `BEGIN IMMEDIATE` in SQLite, `transactionSync` inside the account's Durable Object on Cloudflare. So `commit` throws `InsufficientCredit` when short, and the library turns it into `{ ok: false, reason: "insufficient_credit" }`. Postpaid means `commit` never throws.
+
+## Why `at` is not interpreted
+
+Which instant a price applies to (event time, computation time, a given time) is the decision of whoever writes `getRate`. The library passes `at` to `getRate` and onto the usage row, and does nothing else with it. Night rates, campaigns, late-published prices: all are `getRate` choosing with `at` (see [B13, B23](/pricemeter/en/recipes/)).
+
+## Out of scope
+
+Price tables and versioning, calendars, period close, counters, buffers, queues, the balance gate (inside commit), invoices, tax, payments, subscriptions, coupons, FX, admin UI, HTTP, schedulers, reporting. An opinionated product (Lago-like, or Cellonay's own billing layer) is written on top.
+
+## The entry test
+
+Something enters the core only if:
+
+1. it is a step in the observation → amount → plan chain;
+2. it is expressed with `Rate` or catalog data, or is pure computation;
+3. at least two of the three examples need it.
+
+**The module test.** A module attaches to the core through four seams only: producing a `getRate`, producing an observation quantity, producing plan items, pure computation. A module that has to go beyond them has either found a real gap in the core or is designed wrong. See [Modules](/pricemeter/en/modules/rates/).
+
+## Why not an existing platform
+
+Lago, Orb, Metronome and OpenMeter are separate services. `pricemeter` is embedded: for a synchronous prepaid gate, atomic writes inside a Cloudflare Durable Object, a scope that stops before invoicing, and a type-safe catalog in code. The platforms are references, not competitors.

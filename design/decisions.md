@@ -20,7 +20,7 @@ Decisions taken while implementing the spec (`design/spec.md`). They extend Ek A
 | A90 | Havuz miktarı `ceil(q × w)` float gürültüsünden arındırılır (12 hane) | `10 × 1.1` 12 değil 11 olmalı |
 | A91 | `plan.observe` sonucu `lines` (fiyatlanmış satırlar, havuzlar dahil) döner; `metering.price(lines, …, { pools })` bunları tekrar fiyatlar | DO içinde gömülü `price()` (§9) için satırların tarifesi gerekir |
 | A92 | `metering.commit(fn)` adapter bağlar, `metering.commit(plan)` plan yazar (argüman türüne göre) | §7 `metering.commit(plan)` kullanıyor |
-| A93 | Tip düzeyinde durum: sayaçlar `MeterEntry` interface birliği; `meter()` dönüş tipi alias'sız yazılır | Alias önceki durumu alias argümanı olarak taşıyor, ~100 sayaçta TS2589. 500 sayaç: ~0,9 sn |
+| A93 | Tip düzeyinde durum: sayaçlar `MeterEntry` interface birliği; `meter()` dönüş tipi alias'sız yazılır | Alias önceki durumu alias argümanı olarak taşıyor, ~100 sayaçta TS2589. 500 sayaç: ~0,6 sn tip kontrolü (havuzlar artımlı tutulur) |
 | A94 | `getRate` callback'i dört parametreyi de yazmalı (`_ctx`, `_at`) | TS birlik-tuple rest parametresinde eksik parametreli callback'i reddediyor |
 | A95 | `typed<T>()` işaretçisi: `.meter("x", typed<{…}>())`, `.context(typed<C>())` ya da `.context<C>()` | Kısmi generic çıkarımı yok; düz tip için değer düzeyi işaretçi |
 | A96 | Pratik zincir sınırı ~800 `.meter()`: TS parser'ı 1000 zincirli çağrıda yığını taşırıyor | Katalog bölünebilir; hedef 500 |
@@ -33,3 +33,4 @@ Decisions taken while implementing the spec (`design/spec.md`). They extend Ek A
 | A103 | `minimumCommit` refId'si hesabı içerir: `minimum_commit:{account}:{period}` | Ledger tekilliği `(type, refType, refId)` hesaplar arası geneldir; ikinci hesabın kalemi sessizce düşüyordu (#8) |
 | A104 | Float gürültüsü yalnızca tamsayıya göreli 1e-9 yakınsa temizlenir (`ceilClean`); `carry` toplamı sonraki tamsayıya 1e-9 yakınsa yuvarlanır; aynı anahtarlı satırlar `carry`'yi zincirler | 12 hanelik kesme büyük tam değerleri bozuyordu; ⅓+⅓+⅓ 1 etmiyordu; ikinci satır ilk satırın `carry` girdisini tekrar kullanıyordu (#3, #10, #11) |
 | A105 | SQLite ve Cloudflare referans adapter'ları ayrı paket değil, `pricemeter/sqlite` ve `pricemeter/cloudflare` alt yollarıdır (§10'daki `packages/sqlite`, `packages/cloudflare` yerine) | İkisinin de bağımlılığı yok (sürücü ve Workers tipleri yapısal); tek paket, tek sürüm, tree-shake |
+| A106 | `volume` + `cumulative` + `on_crossing` olmayan tarife `carry` olmadan `usage_required` döner (`requiresCarry`) | Tanımlı bir koşu toplamı yok; `carry`sız her alt-mikro tutar kayboluyor ve sonsuza dek 0 kesiliyordu (A58 "sessiz 0 yok") |

@@ -1,0 +1,84 @@
+---
+title: Catalog
+description: The buildMetering chain, dimensions, pools, refs, context validation and bind.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+The catalog is one object and one chain; there is no `build()`. Every step returns the same object with a narrower type, so **always use the returned reference**. The catalog knows meter ids, dimension schemas and pool feeds; a meter has no unit, type, period or policy.
+
+## The chain
+
+| Step | What it does | Type effect |
+| --- | --- | --- |
+| `.context(schema \| typed<C>())` or `.context<C>()` | Context schema; validated on every bound call. Disable with `{ validate: "never" }` | `Ctx` |
+| `.refs(schema \| ["a", "b"] \| typed<R>())` or `.refs<R>()` | The allowed `ref.type` values | `Ref.type` union |
+| `.meter(id, dims?, { feeds? })` | Adds a meter | adds to `MeterId`, derives `DimsOf<id>` |
+| `.getRate(fn)` | `(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } \| null` | bound flag |
+| `.commit(fn)` | `(plan) => void`; a throw becomes `commit_failed`, an `InsufficientCredit` throw becomes `insufficient_credit` | bound flag |
+| `.bind({ getRate, commit })` | A **new** bound copy of the same catalog | both |
+
+Always available: `meters`, `price()`, `validateRate()`. Once both `getRate` and `commit` are given: `observe`, `hold`, `extend`, `capture`, `release`, `commit(plan)` and `plan.*`. Calling `observe` before binding is a compile error.
+
+<Source file="examples/messaging/src/catalog.ts" body />
+
+## Dimensions: four forms
+
+<Source file="docs/src/snippets/catalog.test.ts" region="dims" />
+
+| Form | Type | Runtime validation |
+| --- | --- | --- |
+| Record of schemas `{ country: z.string() }` | from the schemas | every call, per field; unknown keys fail |
+| Object schema `z.object({…})`, `v.object({…})` | from the schema | every call |
+| `typed<T>()` | `T` | none |
+| Key array `["country"]` | values are `any` | none |
+
+Dimension values can be strings, numbers or enums; there are no wildcards (wildcard matching belongs in `getRate`, see [/rates](/pricemeter/en/modules/rates/)). A failed validation returns `{ ok: false, reason: "invalid_dims", meter, cause }`. The library depends on no schema library; it only calls `~standard.validate`.
+
+<Aside>
+`typed<T>()` is a value-level marker (A95): TypeScript has no partial generic inference, so `.meter<"x", T>()` cannot be written. The same marker works for `.context(typed<C>())` and `.refs(typed<R>())`.
+</Aside>
+
+## Pools: `feeds`
+
+<Source file="docs/src/snippets/catalog.test.ts" region="feeds" />
+
+- A pool is an ordinary meter: **dimensionless**, takes no `feeds` itself, and is declared **before** the meters that feed it (A89). The type system only accepts such ids as `feeds` keys.
+- The weight is a number or a `(dims, ctx) => number` function. The pool line's quantity is `ceil(quantity × weight)` with float noise removed: values within a relative 1e-9 of an integer snap to it (`10 × 1.1` is 11, not 12; A90, A104).
+- The pool line gets its own `getRate` answer and writes its own usage row (`detail.feeder`, `detail.weight`). If you pass the pool line yourself in the same call, it is not added twice; `{ feeds: false }` turns expansion off.
+
+`metering.meters` is a flat, serializable view: `{ "otp/sms": { dims: ["country"], feeds: ["msg/free_pool"] } }`. Dimension keys are read from a record of schemas, a key array, or an object schema (zod `.shape`, valibot `.entries`, arktype `.props`); `typed<T>()` shows `dims: []`.
+
+## Type errors
+
+<Source file="docs/src/snippets/catalog.test.ts" region="errors" />
+
+The same rules are checked at runtime: an undeclared pool, a pool with dims, a meter with `feeds` used as a pool, and a duplicate id all throw in `meter()`.
+
+## `getRate`, `commit` and `bind`
+
+<Source file="docs/src/snippets/catalog.test.ts" region="bind" />
+
+<Aside type="caution" title="getRate must declare all four parameters">
+The `getRate` callback must declare **all four** parameters `(meter, dims, ctx, at)`; name the unused ones `_ctx`, `_at` (A94). Because `dims` narrows on `meter`, the arguments are a union of tuples, and TypeScript does not accept a callback with fewer parameters for such a union.
+</Aside>
+
+- `getRate` returns **the whole tariff in force**, not a single unit price. It may return a raw object; the library validates it with `validateRate` and returns `invalid_rate` if it fails. `null`/`undefined` means no price → `ifMissing`.
+- Within one call, `getRate` runs once per distinct `(meter, dims)`.
+- `bind` does not change the catalog; it returns a new bound copy. A shared catalog (e.g. used by both a Worker and a Durable Object) stays adapter-free and each side binds its own adapters ([messaging example](/pricemeter/en/examples/messaging/)).
+
+## Context and ref validation
+
+<Source file="docs/src/snippets/catalog.test.ts" region="validation" />
+
+- The context is validated against its schema on every bound call (D17/A73); the schema's output (`coerce`, `default`) is what `getRate` and `feeds` functions receive. Metering itself reads only `accountId`, which must always be a string.
+- `refs()` takes an array, a schema, or a type only. With an array or schema, `ref.type` is checked and a mismatch returns `invalid_ref` (A86). `ref.id` must always be a string.
+
+## Not in the catalog
+
+`unit` (presentation), `type` (an observation has one shape: a quantity), `aggregation` / `period` / `chargeTiming` / `batch` (the application's timing), `missingPolicy` (an `observe` option: `ifMissing`), `holdable` (every meter can be held), `costBearing` / `counted` (application metadata).
+
+## Size and speed
+
+A 500-meter catalog type-checks in ~0.6 s (`bun run test:bench-types`, budget 2 s). Each step writes its type state as an alias-free `MeteringState<…>` (A93). The practical chain limit is ~800 `.meter()` calls; the TypeScript parser overflows its stack at 1,000 chained calls (A96). Larger catalogs can be split.

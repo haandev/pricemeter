@@ -2,7 +2,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildMetering, defineRate, holdUpperBound, price, rate, type Rate } from "pricemeter";
+import { buildMetering, defineRate, holdUpperBound, price, rate, requiresCarry, type Rate } from "pricemeter";
 import { volumeTrueUp } from "pricemeter/adjustments";
 import { cycleKey, cycleWindow } from "pricemeter/calendar";
 import { integrate } from "pricemeter/gauge";
@@ -134,7 +134,7 @@ describe("hold upper bound property: any capture sequence stays within bound", (
         const m = buildMetering()
           .context(z.object({ accountId: z.string() }))
           .meter("x")
-          .getRate(async (_m, _d, _c, _a) => ({ rate: r, usedSoFar: u }))
+          .getRate(async (_m, _d, _c, _a) => ({ rate: r, usedSoFar: u, ...(requiresCarry(r) ? { carry: 0 } : {}) }))
           .commit(async () => {});
         const h = await m.plan.hold([{ meter: "x", quantity: qty }], ref, ctx);
         if (!h.result.ok) throw new Error(h.result.reason);

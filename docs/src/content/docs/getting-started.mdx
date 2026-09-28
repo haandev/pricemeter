@@ -1,0 +1,61 @@
+---
+title: Başlarken
+description: 10 dakikada bir katalog, bellek içi adapter ve ilk observe.
+---
+
+import { Steps } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+Bu sayfadaki kod `docs/src/snippets/getting-started.test.ts` dosyasından gelir ve `bun run test` ile çalıştırılır; sayfa çalışmayan kod gösteremez.
+
+## Kurulum
+
+```sh
+bun add pricemeter zod   # ya da npm i / pnpm add
+```
+
+`zod` zorunlu değil: boyut ve bağlam şemaları için herhangi bir [Standard Schema](https://standardschema.dev) kütüphanesi (zod, valibot, arktype) ya da hiç şema kullanılabilir. `pricemeter`'in çalışma zamanı bağımlılığı yoktur; ESM + CJS olarak gelir, Node ≥ 20, Bun ve Workers'ta çalışır.
+
+## 1. Katalog, tarife, adapter
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="setup" />
+
+<Steps>
+
+1. **Tarife (`Rate`)** tüm kademeleri taşır. Bir gözlemin hangi kademeye düştüğüne `rate()` karar verir; tutarlar tamsayı mikro birimdir (`20_000` = $0,02).
+
+2. **`memoryAdapters`** (`pricemeter/testing`) test ve örnekler için bellek içi bir `getRate` + `commit` verir: `usedSoFar`'ı kendi yazdığı satırlardan sayar, `prepaid: true` ile bakiye yetmezse `InsufficientCredit` fırlatır.
+
+3. **`buildMetering()`** tek bir zincirdir; `build()` adımı yoktur. `.bind(mem)` katalogu bu adapter'larla bağlar; üretimde aynı yere kendi `getRate` ve `commit` fonksiyonlarını verirsin.
+
+</Steps>
+
+## 2. İlk observe
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="observe" />
+
+`observe` sırayla şunları yapar: bağlamı ve boyutları doğrular, `getRate`'ten tarifeyi ve `usedSoFar`'ı alır, `price()` ile tutarı hesaplar, planı `commit`'e verir ve sonucu döner. Plan iki listedir: parayı hareket ettiren **ledger** satırları ve kullanımı kaydeden **usage** satırları.
+
+## 3. Retry güvenlidir
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="retry" />
+
+Her satırın `refId`'si `ref`'ten türetilir (`otp_send:msg_1:otp/sms`). `commit` aynı `(refType, refId)`'yi ikinci kez gördüğünde hiçbir şey yazmaz. Kütüphane bunun retry olduğunu bilmez; sonuç yine `charged: 40000` der — "bu çağrının fiyatı", "yazılan tutar" değil (A99) — ama bakiye değişmez.
+
+## 4. Hatalar değer olarak döner
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="failures" />
+
+`{ ok: false, reason }` döndüğünde hiçbir şey yazılmamıştır. Bakiye kontrolü kütüphanede değil `commit`'in içindedir: yalnızca ledger "bakiye ≥ tutar" kontrolünü yazımla aynı atomik adımda yapabilir. Tüm nedenler: [observe ve hold → Result](/pricemeter/observe-and-hold/#result-nedenleri).
+
+## 5. Yazmadan planı görmek
+
+<Source file="docs/src/snippets/getting-started.test.ts" region="plan" />
+
+`metering.plan.*` aynı imzalarla çalışır, `commit` çağırmaz ve `{ result, plan, lines }` döner. Test yazarken ya da planı başka bir yerde (ör. bir Durable Object içinde) uygulamak istediğinde kullanılır.
+
+## Sonra
+
+- [“Ne kadar / ne zaman” sınırı](/pricemeter/boundary/): neyin kütüphanede, neyin uygulamada olduğu.
+- [Katalog](/pricemeter/catalog/) ve [Tarife ve modeller](/pricemeter/rate-models/).
+- [Adapter yazma](/pricemeter/adapters/): gerçek bir veritabanına `commit`.

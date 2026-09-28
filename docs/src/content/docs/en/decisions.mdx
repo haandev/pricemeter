@@ -1,0 +1,31 @@
+---
+title: Decisions
+description: Design decisions, implementation decisions (A77–) and closed open questions.
+---
+
+import MarkdownTable from "~/components/MarkdownTable.astro";
+
+The design document is `design/spec.md`; decisions taken while implementing it live in `design/decisions.md`, and where they conflict, that file wins. The design-phase decision log (appendix A, A53–A76) and the scenario matrix (appendix B) are in the original design document; every scenario is a running test on the [Recipes](/pricemeter/en/recipes/) page.
+
+## Implementation decisions (A77–)
+
+The table below is read from `design/decisions.md` at build time, so every decision added to the file shows up here. The log is kept in Turkish, as it was written during implementation.
+
+<MarkdownTable file="design/decisions.md" />
+
+## Closed open questions
+
+| # | Question | Decision |
+| --- | --- | --- |
+| D7 | Docs domain and hosting | bun workspaces monorepo (package + docs site); docs site on Astro, GitHub Pages; package on npm |
+| D16 | Calendar helpers | the `/calendar` module (A72) |
+| D17 | Context validation | on every call (A73) |
+| D18 | Should a `feeds` function see `ctx` | yes (A74) |
+
+## A few reading notes
+
+- **No silent zero** (A58, A82): a tariff that needs `usedSoFar` returns `usage_required` when the counter is missing; the library never assumes 0.
+- **Value objects** (A87, A101): a hold comes back updated from every call and carries one line per `(meter, dims)`.
+- **One package** (A105): the SQLite and Cloudflare adapters are the `pricemeter/sqlite` and `pricemeter/cloudflare` subpaths; they have no dependencies.
+- **Result = the price of this call** (A99): a repeated call returns the recomputed `charged`; whether anything was written is `commit`'s knowledge.
+- **Counter scope belongs to the app** (A100): the reference adapters count per meter; tiers per dimension value are a `getRate` choice.

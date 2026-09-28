@@ -1,0 +1,35 @@
+---
+title: /testing
+description: Bellek içi adapter'lar, expectPlan ve commitContract.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="testing" />
+
+`pricemeter/testing` testler, örnekler ve bu dokümantasyon için üç şey verir.
+
+## `memoryAdapters(opts)`
+
+Adapter sözleşmesine uyan bellek içi `getRate` + `commit` + `store`: ya hep ya hiç, `(refType, refId)` üzerinde idempotent, prepaid ve yetersizse `InsufficientCredit`.
+
+| Seçenek | Anlamı | Varsayılan |
+| --- | --- | --- |
+| `rates` | sayaç → `Rate` ya da `(dims, ctx, at) => Rate \| { rate, usedSoFar?, carry? } \| null`. Listede olmayan sayacın fiyatı yoktur | `{}` |
+| `prepaid` | Bakiye kapısı | `false` (postpaid) |
+| `balances` | Hesap → başlangıç bakiyesi (mikro birim) | `{}` |
+| `periodOf` | `at` → dönem anahtarı; `usedSoFar` `(hesap, sayaç, dönem)` başına sayılır | tek ömürlük dönem `"*"` |
+
+`getRate`, cevapta `usedSoFar` yoksa onu kendi yazdığı usage satırlarından doldurur (boyutsuz, sayaç başına; A100). `store` şunları açar: `usage`, `ledger`, `account(id)` (`{ balance, reserved }`), `available(id)`, `used(account, meter, period?)`, `credit(account, amount)`, `setRate(meter, rate?)` ve `commits` (no-op retry'lar dahil `commit` çağrı sayısı).
+
+## `expectPlan(plan, expected)`
+
+Çerçevesiz bir plan doğrulaması: satırlar sırayla ve **kısmen** karşılaştırılır (yalnızca verdiğin alanlar), ama satır sayısı tutmalıdır. İlk farkta, gerçek satırı da gösteren bir hata fırlatır; vitest, jest, `node:test` ya da `bun test` içinde çalışır.
+
+## `commitContract({ make, prepaid? })`
+
+Her `commit`'in geçmesi gereken sözleşme: satır yazımı, tekrarlanan `(refType, refId)`'nin no-op olması, negatif `charge`'ın alacak olması, hold/capture/release muhasebesi, tekrarlanan hold'dan sonra release, ve prepaid'de yetersiz bakiyenin hiçbir şey yazmaması. `{ ok, checks: [{ name, ok, error? }] }` döner. Kullanım: [Adapter yazma](/pricemeter/adapters/#commitcontract).
+
+## Bunu kullanmadan nasıl yapardım
+
+Testlerde gerçek adapter'ını kullanabilirsin: SQLite için `new DatabaseSync(":memory:")` hızlıdır ve [`pricemeter/sqlite`](/pricemeter/adapters/#sqlite) ile aynı sonucu verir. `expectPlan` yerine test çerçevenin `toMatchObject`'i iş görür (satır sayısını ayrıca kontrol et). Bellek adapter'ının asıl değeri, `getRate` yazmadan bir tarifeyi sayaca bağlamak ve sözleşmenin en kısa, okunabilir referansı olmaktır.

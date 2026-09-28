@@ -100,3 +100,19 @@ describe("price() edge cases", () => {
     expect(() => price([{ meter: "m", quantity: 2 ** 60, rate: v, usedSoFar: 0 }], { type: "t", id: "1" }, { accountId: "a" })).toThrow(RangeError);
   });
 });
+
+describe("volume + cumulative without on_crossing", () => {
+  it("needs a carry: usage_required instead of silently charging 0", () => {
+    const r = defineRate({ model: "volume", tiers: [{ from: 0, unitPriceMicroUsd: 1, per: 3 }], policy: { rounding: "cumulative" } });
+    const ctx = { accountId: "a" };
+    expect(price([{ meter: "m", quantity: 1, rate: r, usedSoFar: 0 }], { type: "t", id: "1" }, ctx).result).toMatchObject({ ok: false, reason: "usage_required" });
+    let carry = 0;
+    let total = 0;
+    for (let i = 0; i < 30; i++) {
+      const p = price([{ meter: "m", quantity: 1, rate: r, usedSoFar: i, carry }], { type: "t", id: String(i) }, ctx);
+      total += p.result.ok ? p.result.charged : NaN;
+      carry = p.plan.usage[0]!.detail.carry!;
+    }
+    expect(total).toBe(10);
+  });
+});

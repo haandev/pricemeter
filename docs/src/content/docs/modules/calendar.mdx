@@ -1,0 +1,30 @@
+---
+title: /calendar
+description: "Dönem anahtarları ve pencereleri: takvim ayı ve abonelik gününe bağlı faturalama döngüsü."
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="calendar" />
+
+Çekirdek takvim okumaz (A72); "bu dönem" nedir sorusu uygulamanındır. `pricemeter/calendar` bu soruyu yanıtlamanın saf yardımcılarını verir: `usedSoFar` sayacının hangi döneme ait olduğunu seçen **anahtarlar** ve `integrate()` ile sayaç sorguları için **pencereler**.
+
+| API | Döner |
+| --- | --- |
+| `monthKey({ at, tz? })` | `"2026-09"`: `tz` saat dilimindeki takvim ayı (varsayılan UTC) |
+| `monthWindow({ at, tz? })` | O ayın yarı açık `[from, to)` penceresi, epoch ms |
+| `cycleKey({ at, anchor, tz? })` | `"2026-09-15"`: `anchor`'ın ayın gününe bağlı döngünün yerel başlangıç tarihi |
+| `cycleWindow({ at, anchor, tz? })` | O döngünün `[from, to)` penceresi. 31'inde başlayan döngü kısa aylarda ayın son günü yenilenir |
+| `LIFETIME` | `"*"`: hiç sıfırlanmayan sayaçların dönem anahtarı (B16) |
+
+Saat dilimleri `Intl` ile çözülür; yerel gece yarısının var olmadığı günler (00:00'da DST) doğru işlenir. Pencereler yarı açıktır: dönem sonu gözlemi `at: window.to − 1` ile yapılır, çünkü `window.to` bir sonraki dönemi seçer (A98).
+
+## `getRate` içinde
+
+<Source file="docs/src/snippets/modules.test.ts" region="calendar-getrate" />
+
+Sayaç deposu ve `getRate` **aynı** anahtarı kullanmalıdır: burada `memoryAdapters({ periodOf })` satırları yerel aya göre sayar, `getRate` de aynı ayın sayacını okur. `policy.tierPeriod: "month"` bu seçimi tarifeye not eder; lib onu okumaz. SQLite'ta anahtar yerine pencere kullanılır: `usedSoFar({ account, meter, from, to })`.
+
+## Bunu kullanmadan nasıl yapardım
+
+UTC takvim ayı için `new Date(at).toISOString().slice(0, 7)` yeterlidir. Modül şu durumlarda işe yarar: UTC dışı bir saat dilimi (İstanbul'da 30 Eylül 22:30 UTC zaten Ekim'dir), abonelik gününe bağlı döngüler (31 Ocak → 28 Şubat → 31 Mart) ve DST geçişleri. Zaten bir takvim kütüphanen (Temporal, date-fns-tz, Luxon) varsa onunla aynı anahtarı üret; kütüphane anahtarın nereden geldiğini bilmez.

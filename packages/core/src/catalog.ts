@@ -157,11 +157,11 @@ export interface CaptureOptions {
 
 export type CommitResult = { ok: true } | Failure;
 
-export interface Planned<R> {
+export interface Planned<R, L = PricedLine> {
   result: R;
   plan: Plan;
   /** The resolved, priced lines (pool lines included). Re-price them with `metering.price()`, e.g. inside a Durable Object. */
-  lines: PricedLine[];
+  lines: L[];
 }
 
 export interface MeterInfo {
@@ -252,12 +252,12 @@ export interface BoundApi<S extends CatalogState> {
       ref: RefOf<S>,
       ctx: S["ctx"],
       opts?: ObserveOptions<number>,
-    ): Promise<Planned<Result>>;
-    observe(lines: readonly LineOf<S>[], ref: RefOf<S>, ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<Result>>;
-    hold(lines: readonly LineOf<S>[], ref: RefOf<S>, ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<HoldResult>>;
-    extend(hold: HoldLike, lines: readonly LineOf<S>[], ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<HoldResult>>;
-    capture(hold: HoldLike, lines: readonly CaptureLineOf<S>[], ctx: S["ctx"], opts?: CaptureOptions): Promise<Planned<CaptureResult>>;
-    release(hold: HoldLike, ctx: S["ctx"], opts?: { at?: number }): Promise<Planned<CaptureResult>>;
+    ): Promise<Planned<Result, PricedLineOf<S>>>;
+    observe(lines: readonly LineOf<S>[], ref: RefOf<S>, ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<Result, PricedLineOf<S>>>;
+    hold(lines: readonly LineOf<S>[], ref: RefOf<S>, ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<HoldResult, PricedLineOf<S>>>;
+    extend(hold: HoldLike, lines: readonly LineOf<S>[], ctx: S["ctx"], opts?: ObserveOptions<{ [K in MeterId<S>]?: number }>): Promise<Planned<HoldResult, PricedLineOf<S>>>;
+    capture(hold: HoldLike, lines: readonly CaptureLineOf<S>[], ctx: S["ctx"], opts?: CaptureOptions): Promise<Planned<CaptureResult, PricedLineOf<S>>>;
+    release(hold: HoldLike, ctx: S["ctx"], opts?: { at?: number }): Promise<Planned<CaptureResult, PricedLineOf<S>>>;
   };
 }
 
@@ -307,8 +307,11 @@ function dimsKind(spec: unknown): DimsKind {
   }
   if (isTyped(spec)) return { kind: "typed" };
   if (isStandardSchema(spec)) {
-    const shape = (spec as { shape?: unknown }).shape;
-    return { kind: "schema", schema: spec, keys: shape && typeof shape === "object" ? Object.keys(shape) : [] };
+    // object keys for the `meters` view: zod `.shape`, valibot `.entries`, arktype `.props`
+    const x = spec as { shape?: unknown; entries?: unknown; props?: unknown };
+    const obj = [x.shape, x.entries].find((o) => o && typeof o === "object" && !Array.isArray(o)) as object | undefined;
+    const props = Array.isArray(x.props) ? (x.props as { key?: unknown }[]).map((p) => p.key).filter((k): k is string => typeof k === "string") : [];
+    return { kind: "schema", schema: spec, keys: obj ? Object.keys(obj) : props };
   }
   if (typeof spec === "object" && spec !== null) {
     const shape = spec as Record<string, unknown>;

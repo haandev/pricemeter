@@ -1,0 +1,35 @@
+---
+title: /gauge
+description: Seviye örneklerini (koltuk, GB) tek bir gözlem miktarına çevirir.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="gauge" />
+
+Koltuk sayısı, depolanan GB, açık instance: bunlar olay değil **seviyedir**. `pricemeter/gauge` uygulamanın tuttuğu seviye örneklerini dönem sonunda tek bir tamsayı miktara indirger; o miktar sıradan bir `observe` ile fiyatlanır. Modül testindeki dikişi "gözlem miktarı üretmek"tir.
+
+| API | Ne yapar |
+| --- | --- |
+| `window({ from, to })` | Yarı açık `[from, to)` pencere; boşsa ya da sonlu değilse fırlatır |
+| `integrate({ samples, window, mode, unit? })` | Basamak fonksiyonunu pencere üzerinde toplar, yukarı yuvarlanmış tamsayı döner |
+
+| `mode` | Sonuç | Tipik kullanım |
+| --- | --- | --- |
+| `last` | Pencerenin sonundaki seviye | "ay sonunda kaç koltuk" |
+| `max` | Pencere içindeki en yüksek seviye | aylık tepe GB (B10) |
+| `time_weighted` | Seviye × zaman, `unit` cinsinden (`ms`, `s`, `h`; varsayılan `s`) | koltuk-saniye, `per` ile oranlama (B9) |
+
+- Bir örnek `{ at, value }`: `value`, `at`'ten bir sonraki örneğe kadar geçerlidir. Örnekler herhangi bir sırada verilebilir; ilk örnekten önceki seviye 0'dır.
+- Pencereden önceki örnekler başlangıç seviyesini belirler. Negatif ya da sonlu olmayan değer fırlatır.
+- Sonuç, float gürültüsü temizlenerek yukarı yuvarlanır.
+
+Oranlama: `time_weighted` koltuk-saniye verir; tarife `unitPriceMicroUsd: aylık fiyat, per: ayın saniyesi` olur. Ayın yarısında eklenen koltuk yarı fiyattır. Dönem sonu gözlemi `at: window.to − 1` ile yapılır (A98). Tam akış: [SaaS koltuk örneği](/pricemeter/examples/saas-seats/).
+
+## Bunu kullanmadan nasıl yapardım
+
+Birkaç satırlık bir döngüdür:
+
+<Source file="docs/src/snippets/modules.test.ts" region="gauge-without" />
+
+Yazarken dikkat edilecekler: sıralanmamış girdi, pencereden önceki başlangıç seviyesi, yarı açık pencere, float gürültüsünün tamsayıyı bir üste itmesi (`ceil(2.0000000001)`), negatif değerler. Seviyeleri zaten veritabanında zaman ağırlıklı topluyorsan (`SUM(value × duration)`) modüle gerek yoktur; çıkan sayıyı `observe`'a ver.

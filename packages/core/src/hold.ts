@@ -1,7 +1,7 @@
 import type { MicroUsd } from "./money.js";
 import { fail, type Failure, type LedgerOp, type Plan, type Ref, type ResultLine, type UsageRow } from "./plan.js";
 import { assignRefIds, lineKey, type Dims, type PricedLine } from "./price.js";
-import { holdUpperBound, rate, requiresUsage, type Rate, type ValidRate } from "./rate.js";
+import { holdUpperBound, missingPosition, rate, type Rate, type ValidRate } from "./rate.js";
 import { poolQuantity } from "./util.js";
 
 /** A meter feeding a pool line: its weight and its index in `Hold.lines`. */
@@ -108,7 +108,7 @@ function mergeLines(existing: readonly HoldLine[], incoming: readonly PricedHold
     const key = lineKey(l.meter, l.dims);
     let i = index.get(key);
     if (i === undefined) {
-      if (l.usedSoFar === undefined && requiresUsage(l.rate, l.carry !== undefined)) return fail("usage_required", { meter: l.meter });
+      if (missingPosition(l.rate, l.usedSoFar, l.carry)) return fail("usage_required", { meter: l.meter });
       const h: HoldLine = { meter: l.meter, dims: (l.dims ?? {}) as Dims, quantity: 0, captured: 0, amount: 0 as MicroUsd, rate: l.rate, upperBound: 0 as MicroUsd };
       if (l.usedSoFar !== undefined) h.usedSoFar = l.usedSoFar;
       if (l.carry !== undefined) h.carry = l.carry;
@@ -234,7 +234,7 @@ export function planCapture(
   for (const i of changed) {
     const l = lines[i]!;
     const r = rateFor(l);
-    if (r !== l.rate && l.usedSoFar === undefined && requiresUsage(r, l.carry !== undefined)) {
+    if (r !== l.rate && missingPosition(r, l.usedSoFar, l.carry)) {
       return { result: fail("usage_required", { meter: l.meter }), plan: none };
     }
   }

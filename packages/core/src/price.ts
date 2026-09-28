@@ -1,6 +1,6 @@
 import type { MicroUsd } from "./money.js";
 import { fail, type Plan, type Ref, type Result, type ResultLine, type UsageRow } from "./plan.js";
-import { rate, requiresUsage, type Rated, type ValidRate } from "./rate.js";
+import { missingPosition, rate, type Rated, type ValidRate } from "./rate.js";
 
 export type Dims = Record<string, unknown>;
 
@@ -64,7 +64,7 @@ export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext,
   const rated: Rated[] = [];
 
   for (const l of lines) {
-    if (l.usedSoFar === undefined && requiresUsage(l.rate, l.carry !== undefined)) {
+    if (missingPosition(l.rate, l.usedSoFar, l.carry)) {
       return { result: fail("usage_required", { meter: l.meter }), plan: { ledger: [], usage: [] }, rated: [] };
     }
   }

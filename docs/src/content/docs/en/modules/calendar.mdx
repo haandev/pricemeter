@@ -1,0 +1,30 @@
+---
+title: /calendar
+description: "Period keys and windows: calendar months and billing cycles anchored on the subscription day."
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="calendar" />
+
+The core reads no calendar (A72); what “this period” means is the application's question. `pricemeter/calendar` gives pure helpers to answer it: **keys** that pick which period a `usedSoFar` counter belongs to, and **windows** for `integrate()` and counter queries.
+
+| API | Returns |
+| --- | --- |
+| `monthKey({ at, tz? })` | `"2026-09"`: the calendar month in time zone `tz` (default UTC) |
+| `monthWindow({ at, tz? })` | That month's half-open `[from, to)` window, epoch ms |
+| `cycleKey({ at, anchor, tz? })` | `"2026-09-15"`: the local start date of the cycle anchored on `anchor`'s day of month |
+| `cycleWindow({ at, anchor, tz? })` | That cycle's `[from, to)` window. A cycle started on the 31st renews on the last day of shorter months |
+| `LIFETIME` | `"*"`: the period key for counters that never reset (B16) |
+
+Time zones are resolved with `Intl`; days whose local midnight does not exist (DST at 00:00) are handled. Windows are half-open: a period-end observation uses `at: window.to − 1`, because `window.to` selects the next period (A98).
+
+## Inside `getRate`
+
+<Source file="docs/src/snippets/modules.test.ts" region="calendar-getrate" />
+
+The counter store and `getRate` must use **the same** key: here `memoryAdapters({ periodOf })` counts rows by local month and `getRate` reads the same month's counter. `policy.tierPeriod: "month"` records that choice on the tariff; the library does not read it. With SQLite you use a window instead of a key: `usedSoFar({ account, meter, from, to })`.
+
+## How you'd do it without this
+
+For a UTC calendar month, `new Date(at).toISOString().slice(0, 7)` is enough. The module earns its place with non-UTC time zones (22:30 UTC on Sep 30 is already October in Istanbul), cycles anchored on the subscription day (Jan 31 → Feb 28 → Mar 31) and DST transitions. If you already have a date library (Temporal, date-fns-tz, Luxon), produce the same key with it; the library never knows where the key came from.

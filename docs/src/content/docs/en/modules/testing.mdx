@@ -1,0 +1,35 @@
+---
+title: /testing
+description: In-memory adapters, expectPlan and commitContract.
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="testing" />
+
+`pricemeter/testing` gives tests, examples and these docs three things.
+
+## `memoryAdapters(opts)`
+
+An in-memory `getRate` + `commit` + `store` that follows the adapter contract: all or nothing, idempotent on `(refType, refId)`, `InsufficientCredit` when prepaid and short.
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `rates` | meter → a `Rate` or `(dims, ctx, at) => Rate \| { rate, usedSoFar?, carry? } \| null`. Meters not listed have no price | `{}` |
+| `prepaid` | Balance gate | `false` (postpaid) |
+| `balances` | Account → starting balance (micro-units) | `{}` |
+| `periodOf` | `at` → period key; `usedSoFar` is counted per `(account, meter, period)` | one lifetime period `"*"` |
+
+When an answer has no `usedSoFar`, `getRate` fills it from the usage rows it wrote (per meter, without dimensions; A100). `store` exposes `usage`, `ledger`, `account(id)` (`{ balance, reserved }`), `available(id)`, `used(account, meter, period?)`, `credit(account, amount)`, `setRate(meter, rate?)` and `commits` (the number of `commit` calls, no-op retries included).
+
+## `expectPlan(plan, expected)`
+
+A framework-free plan assertion: rows are compared in order and **partially** (only the fields you give), but the row count must match. It throws at the first difference, showing the actual row; it works under vitest, jest, `node:test` or `bun test`.
+
+## `commitContract({ make, prepaid? })`
+
+The contract every `commit` must pass: writing rows, a repeated `(refType, refId)` being a no-op, a negative `charge` crediting, hold/capture/release accounting, release after a retried hold, and — when prepaid — insufficient balance writing nothing. Returns `{ ok, checks: [{ name, ok, error? }] }`. Usage: [Writing adapters](/pricemeter/en/adapters/#commitcontract).
+
+## How you'd do it without this
+
+In tests you can use your real adapter: for SQLite, `new DatabaseSync(":memory:")` is fast and gives the same results as [`pricemeter/sqlite`](/pricemeter/en/adapters/#sqlite). Instead of `expectPlan`, your framework's `toMatchObject` works (check the row count separately). The memory adapter's real value is wiring a tariff to a counter without writing `getRate`, and being the shortest readable reference for the contract.

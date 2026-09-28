@@ -1,0 +1,36 @@
+---
+title: "Örnek: SaaS koltuk (SQLite)"
+description: Oranlanan koltuklar, aylık tepe depolama, katmanlı fiyat tablosu, EUR hesaplar, asgari taahhüt, abonelik gününe bağlı döngü.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/saas-seats`: koltuk ve depolama, abonelik gününe bağlı faturalama döngüsü başına, SQLite üzerinde.
+
+```sh
+bunx vitest run examples/saas-seats
+```
+
+<Source file="examples/saas-seats/src/billing.ts" from="/**" to="^ \*/" />
+
+## Fiyat tablosu
+
+<Source file="examples/saas-seats/src/billing.ts" decl="PRICE_ROWS" />
+
+Scope'lar `account:{id}` > `plan:{plan}:{para birimi}` > `list:{para birimi}`. EUR hesaplar EUR satırlarını okur; `Rate`'in kendisinde para birimi yoktur (B17). İlk 10 GB dahildir.
+
+## Katalog ve `getRate`
+
+<Source file="examples/saas-seats/src/billing.ts" from="const table = layeredRates" to="^    \.commit\(" />
+
+Koltuk fiyatı döngü başına aylık fiyattır; miktar koltuk-saniye olduğu için `getRate` her kademenin `per`'ini döngünün saniye sayısına çevirir. Ayın yarısında eklenen koltuk yarı fiyattır (B9). `usedSoFar` döngü penceresinden okunur.
+
+## Döngü kapanışı
+
+<Source file="examples/saas-seats/src/billing.ts" from="async closeCycle(" to="^    \}," />
+
+1. `integrate` seviye örneklerini iki miktara indirger: koltuk-saniye (`time_weighted`) ve tepe GB (`max`, B10).
+2. Tek bir çok satırlı `observe`, dönem ref'iyle (`{hesap}:{döngü anahtarı}`) ve `at: cycle.to − 1` ile (A98).
+3. `minimumCommit` kurumsal planın aylık asgarisini tamamlar (B12); `metering.commit(plan)` ile yazılır.
+
+İki adım da idempotenttir: aynı döngüyü iki kez kapatan bir cron hiçbir şeyi iki kez yazmaz.

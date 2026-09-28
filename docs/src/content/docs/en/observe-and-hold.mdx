@@ -1,0 +1,92 @@
+---
+title: observe and hold
+description: observe options, the three states, the hold value object, extend, telescoping captures, release and Result reasons.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+`observe`, `hold`, `extend`, `capture` and `release` live on the bound catalog. Each expands lines (`feeds`), calls `getRate`, runs `price()`, commits and returns a result. To see the plan, call `metering.plan.<same call>`: same arguments, no `commit`, returns `{ result, plan, lines }`.
+
+## `observe`
+
+Two signatures: one line and many lines.
+
+```ts
+metering.observe(meter, dims, quantity, ref, ctx, opts?)
+metering.observe([{ meter, dims, quantity }, …], ref, ctx, opts?)
+```
+
+A multi-line `observe` is one consistent observation: one plan, one `commit`, all or nothing. `quantity` is a non-negative integer; the unit is your choice (messages, tokens, minutes, seat-seconds, a transaction amount in micro-USD).
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `at` | Observation time (epoch ms); passed to `getRate` and written on usage rows | `Date.now()` |
+| `usedSoFar` | Overrides `getRate`'s; a number for one line, `{ [meter]: number }` for many | — |
+| `ifMissing` | When `getRate` returns `null`: `reject` (write nothing, `no_price`) or `free` (count and write at 0) | `reject` |
+| `feeds` | `false`: skip pool expansion | `true` |
+
+## Three states
+
+| State | What happens |
+| --- | --- |
+| A tariff with price 0 | Free **and** priced: counted, 0 written to usage, nothing to the ledger |
+| `getRate` → `null`, `ifMissing: "reject"` | `{ ok: false, reason: "no_price", meter }`; nothing written |
+| `getRate` → `null`, `ifMissing: "free"` | Counted and written with a zero-priced one-tier tariff |
+
+`no_price` is a state, not an error: an item whose price is published late (such as WhatsApp window prices) can be queued and retried with the same `at` ([messaging example](/pricemeter/en/examples/messaging/)).
+
+## Hold: a value object
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="hold" />
+
+- A `hold` is a multi-line reservation. Each line's tariff and `usedSoFar` are **embedded in the hold**; the application stores it (e.g. on the OTP record) and the library never reads the ledger.
+- Every call returns the **updated** hold (`result.hold`, A87). Pass the new value to the next call. Retrying with the same old hold produces the same `refId` and is a no-op in `commit`.
+- The reservation is each line's [hold upper bound](/pricemeter/en/rate-models/#the-hold-upper-bound); pool lines are reserved too. A hold returns `charged: 0`: a reservation is not a money movement.
+- A hold has **one line per `(meter, dims)`** (A101): lines with the same key merge, and a pool line carries its feeders as `feeders[]`. The hold rounds each key once: under `cumulative` it equals an `observe` with separate lines exactly; under `per_event_up` it differs only by rounding (at most 2 micro-units per line), in either direction.
+- `extend` grows the hold: existing `(meter, dims)` lines grow on their stored tariff, `getRate` is called only for new lines, and pool lines follow their feeders.
+- `capture` charges what actually happened. The line is found by `meter`; when the same meter is on several lines, `dims` is required. Pool lines are captured along with their feeders. Partial and repeated captures are fine.
+- `release` frees the remaining reservation (`upperBound − captured`) and closes the hold.
+
+## Telescoping captures
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="telescoping" />
+
+Partial captures round the hold as one observation: the n-th capture charges `R(u, c+q) − R(u, c)`, where `u` is the `usedSoFar` at hold time and `c` the units captured so far (A88). Otherwise `per_event_up` would push piecewise captures over the upper bound.
+
+## Capture-time tariff
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="capturerate" />
+
+By default a capture uses the tariff stored in the hold and does not call `getRate` again: an open hold keeps the old price even after a custom price ends (B20). To price at capture time, pass `{ rate }`: one tariff or `{ [meter]: Rate }`. The total still cannot exceed the hold's upper bound.
+
+## `hold_exceeded` and `hold_closed`
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="closed" />
+
+`hold_exceeded`: a line would capture more units than reserved, or the total amount would exceed the upper bound. `hold_closed`: the hold was released (A86). Neither writes anything; `extend` first.
+
+## Result reasons
+
+Success: `{ ok: true, charged, lines }` (holds and captures add `holdId` and `hold`; holds add `upperBound`). `charged` is this call's net money movement: charges, captures and adjustments, not reservations.
+
+| `reason` | When | Written |
+| --- | --- | --- |
+| `no_price` | `getRate` returned `null` and `ifMissing` is `reject` | nothing |
+| `usage_required` | The tariff needs `usedSoFar` and none was given | nothing |
+| `insufficient_credit` | `commit` threw `InsufficientCredit` (also matched by name, so it survives RPC) | nothing |
+| `invalid_context` | The context failed its schema, `accountId` is not a string, or the hold belongs to another account | nothing |
+| `invalid_dims` | The dimensions failed the meter's schema | nothing |
+| `invalid_rate` | A tariff from `getRate` or capture `{ rate }` failed `validateRate` | nothing |
+| `invalid_ref` | The `ref` is malformed or `ref.type` is not in `refs()` | nothing |
+| `hold_exceeded` | The capture exceeds the reservation or the upper bound | nothing |
+| `hold_closed` | The hold was already released | nothing |
+| `commit_failed` | `commit` threw anything else; the error is in `cause` | up to `commit`'s atomicity: should be nothing |
+
+<Aside type="caution" title="Exceptions, not values">
+Programmer errors throw instead of returning a `Result`: a meter not in the catalog, a negative or non-integer `quantity`, a capture line that is not in the hold or is ambiguous (no `dims`), an invalid `feeds` weight, and `observe` on a catalog without bound adapters (TypeScript already rejects that at compile time).
+</Aside>
+
+## The balance gate
+
+“Balance ≥ amount” is not in the library. `commit` throws `InsufficientCredit` when short and the library returns `insufficient_credit`. Holds and extends count as debits too: a prepaid `commit` refuses a reservation beyond the available balance. Postpaid means `commit` never throws (B26).

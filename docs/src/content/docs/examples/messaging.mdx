@@ -1,0 +1,61 @@
+---
+title: "Örnek: mesajlaşma (Cloudflare)"
+description: OTP ve WhatsApp; hesap başına Durable Object ledger'ı, hold/extend/capture, gömülü fiyatlama, D1 usage.
+---
+
+import Source from "~/components/Source.astro";
+
+`examples/messaging`: Cellonay tarzı bir OTP + WhatsApp servisi. Cloudflare Worker, hesap başına bir Durable Object (ledger, bakiye, sayaçlar), D1 (usage), KV (OTP kayıtları), Queue (geç yayımlanan fiyatlar) ve aylık cron. Prepaid.
+
+```sh
+bunx vitest run examples/messaging     # workerd'siz testler (DurableObject shim'i)
+cd examples/messaging && bun run dev   # wrangler dev
+```
+
+| Dosya | Rolü |
+| --- | --- |
+| `src/catalog.ts` | Paylaşılan katalog; adapter yok |
+| `src/prices.ts` | Katmanlı fiyat tablosu + rota maliyeti yedeği |
+| `src/app.ts` | Worker mantığı: OTP gönder / tekrar / doğrula / süresi dolsun, WhatsApp penceresi, aylık ücret |
+| `src/account.ts` | Hesap DO'sunun mantığı (`AccountCore`), `DurableObject` sınıfından bağımsız |
+| `src/do.ts`, `src/worker.ts` | Cloudflare'in örneklediği ince sarmalayıcılar |
+
+## Katalog
+
+<Source file="examples/messaging/src/catalog.ts" body />
+
+Havuz (`msg/free_pool`) önce tanımlanır; SMS ve WhatsApp onu 1 ağırlıkla besler, böylece kanaldan bağımsız aylık 1.000 ücretsiz mesaj kotası (B4) tek bir kademeli tarifedir. Katalog adapter'sızdır: Worker `bind` eder, DO yalnızca `price()` için kullanır.
+
+## Fiyatlar
+
+<Source file="examples/messaging/src/prices.ts" decl="PRICE_ROWS" />
+
+Türkiye SMS'i aylık 10.000'den sonra ucuzlar (B1), `pro` planın kendi satırı vardır, özel IP ayda bir kez $50'dır (B11). Tabloda satırı olmayan SMS ülkeleri için fiyat, `at` anındaki operatör maliyeti + %25 marjdır (B23):
+
+<Source file="examples/messaging/src/prices.ts" decl="routeRate, findRate" />
+
+## Worker: bind ve OTP akışı
+
+<Source file="examples/messaging/src/app.ts" from="const metering = catalog.bind(" to="^  \}\);" />
+
+`usedSoFar` yalnızca çok kademeli ya da sabit ücretli tarifede istenir ve hesabın DO'sundan, `monthKey({ at })` dönemi için okunur.
+
+<Source file="examples/messaging/src/app.ts" from="async sendOtp(" to="^    \}," />
+
+<Source file="examples/messaging/src/app.ts" from="async verifyOtp(" to="^    \}," />
+
+Gönderimde iki satırlı bir hold (segmentler + bir doğrulama) açılır ve OTP kaydının üstünde saklanır; tekrar gönderim aynı hold'u `extend` eder; doğrulamada gönderilen segmentler ve doğrulama yakalanır, kalan serbest bırakılır. Süresi dolan OTP yalnızca teslim edilen segmentleri öder.
+
+## Gömülü fiyatlama ve geç fiyatlar
+
+<Source file="examples/messaging/src/app.ts" from="async closeWindow(" to="^    \}," />
+
+Worker `plan.observe` ile satırları fiyatlar ama yazmaz; hesabın DO'su onları kendi sayaçlarıyla yeniden fiyatlar ve aynı adımda uygular ([gömülü mod](/pricemeter/price-and-plan/#gömülü-mod)). Ülkenin pencere fiyatı henüz yayımlanmadıysa sonuç `no_price`'tır: mesaj kuyruğa girer, bir saat sonra **aynı `at`** ile yeniden denenir.
+
+<Source file="examples/messaging/src/account.ts" decl="AccountCore" />
+
+## HTTP eşlemesi
+
+<Source file="examples/messaging/src/worker.ts" decl="reply" />
+
+Durum kodu kütüphanenin değil uygulamanın kararıdır: `insufficient_credit` → 402, `no_price` → 422.

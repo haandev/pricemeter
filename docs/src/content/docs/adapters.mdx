@@ -1,0 +1,83 @@
+---
+title: Adapter yazma
+description: getRate ve commit sözleşmeleri, commitContract, SQLite ve Cloudflare referans adapter'ları.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+import Source from "~/components/Source.astro";
+
+Kütüphanenin dünyaya iki kapısı var: tarife ve kullanımı soran `getRate`, planı yazan `commit`. İkisi de senin kodundur; referans adapter'lar birer başlangıç noktasıdır.
+
+## `getRate` sözleşmesi
+
+```ts
+(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } | null | undefined   // ya da Promise'i
+```
+
+- **Tarifenin tamamını** dön; kademe seçimini `rate()` yapar. Ham obje dönebilirsin, kütüphane doğrular (`invalid_rate`).
+- `usedSoFar`: bu hesabın bu sayaçta, **seçtiğin dönemde** şimdiye kadarki adedi. Kademeli, `volume`, `package`, sabit ücretli ve `cumulative` tarifelerde zorunlu; eksikse `usage_required` ([kurallar](/pricemeter/rate-models/#usedsofar)).
+- `carry`: yalnızca `cumulative` yuvarlamada, bir önceki usage satırının `detail.carry`'si.
+- `at`'i nasıl yorumlayacağın (olay anı mı, hesap anı mı) senin kararın. Dönem sonu gözlemleri `at: window.to − 1` ile yapılır, çünkü pencereler yarı açıktır ve `window.to` bir sonraki dönemi seçer (A98).
+- Sayacın kapsamı senin: referans adapter'lar sayaç başına, boyutsuz sayar. Boyut başına kademe istiyorsan `getRate`'te `dims` ile say (`sqliteAdapter.usedSoFar({ dims })`; A100).
+- `null` = fiyat yok → `ifMissing`. Fırlatma: bir `getRate` hatası `observe`'dan istisna olarak çıkar.
+- Aynı çağrıda aynı `(meter, dims)` için bir kez çağrılır. Dört parametrenin dördünü de yaz (A94).
+
+## `commit` sözleşmesi
+
+```ts
+(plan: Plan) => void | Promise<void>
+```
+
+| Kural | Neden |
+| --- | --- |
+| **Ya hep ya hiç**: ledger ve usage satırları tek transaction'da | Yarım yazılmış plan tutarsız bakiye demektir |
+| **İdempotent**: aynı `(refType, refId)` ikinci kez gelirse sessizce atla (ledger'da `op` ile birlikte) | Uygulama retry'ı güvenli olsun |
+| Bakiye yalnızca **gerçekten eklenen** ledger satırlarıyla hareket eder | Retry bakiyeyi iki kez düşürmesin |
+| Prepaid: `balance − reserved < 0` olacaksa `InsufficientCredit` fırlat, hiçbir şey yazma | Bakiye kapısı yazımla aynı atomik adımda |
+| `charge` bakiyeyi düşürür (negatifse artırır); `hold`/`extend` `reserved`'ı artırır ve borç sayılır; `capture` bakiyeyi düşürür; `release` rezervasyonu serbest bırakır | Kullanılabilir = `balance − reserved` |
+| Hold başına **gerçekten ayrılan** tutarı tut: `capture` rezervasyonu en fazla onu kadar düşürür, `release` planın tutarını değil onu serbest bırakır (A102) | Farklı tutarla tekrarlanan bir hold no-op yazılır ama yeniden hesaplanmış bir `upperBound` döner; plana güvenen release rezervasyonu kaydırır |
+| Başka her hata için fırlat | Lib `commit_failed` döner, `cause`'ta hata |
+
+`InsufficientCredit` `name` ile de eşleşir, bu yüzden RPC ve realm sınırlarından geçer. Boş planlar (`ledger` ve `usage` boş) `commit`'e hiç gelmez.
+
+## `commitContract`
+
+`pricemeter/testing` her `commit`'in geçmesi gereken sözleşmeyi bir test takımı olarak verir. Kendi adapter'ın için `seed` (hesaba bakiye ver) ve `snapshot` (satır sayıları ve kullanılabilir bakiye) yaz:
+
+<Source file="docs/src/snippets/adapters.test.ts" region="contract" />
+
+Postpaid bir adapter için `{ prepaid: false }` ver; bakiye kontrolleri atlanır.
+
+## SQLite
+
+`pricemeter/sqlite`, `node:sqlite`, `bun:sqlite` ve better-sqlite3 ile çalışır (yapısal `SqliteLike`). `migrate`, `commit`, `usedSoFar`, `spent`, `balance`, `credit` verir.
+
+<Source file="docs/src/snippets/adapters.test.ts" region="sqlite" />
+
+Plan başına tek bir `BEGIN IMMEDIATE`. Satırlar `INSERT … ON CONFLICT DO NOTHING` ile yazılır (`OR IGNORE` değil: o NOT NULL ihlallerini de yutar); bakiye ve rezervasyon yalnızca gerçekten eklenen ledger satırları için hareket eder:
+
+<Source file="packages/core/src/sqlite/index.ts" from="const commit: Commit" to="^  };" />
+
+Şema: `usage_events` (`UNIQUE (ref_type, ref_id)`), `ledger_entries` (`UNIQUE (type, ref_type, ref_id)`), `holds` (hold başına ayrılan tutar), `accounts`. `dims` kanonik JSON (sıralı anahtarlar) olarak saklanır, böylece `usedSoFar({ dims })` eşitlikle sorgulanabilir.
+
+<Source file="packages/core/src/sqlite/index.ts" decl="schema" />
+
+## Cloudflare
+
+`pricemeter/cloudflare`: hesap başına bir Durable Object; ledger, bakiye ve `usedSoFar` sayaçları DO'nun SQLite deposunda.
+
+- `applyPlan(storage, plan, { prepaid, periodOf })` her şeyi `transactionSync` içinde yapar: idempotent ledger, bakiye kapısı, dönem başına sayaçlar ve usage outbox'ı. Fırlatmak her şeyi geri alır.
+- `doCommit(stub)` Worker tarafındaki `commit`'tir: planı hesabın DO'suna yönlendirir. Hatalar RPC'den güvenilir geçmediği için yetersizlik bir **değer** olarak döner (`commitReply`) ve Worker'da yeniden `InsufficientCredit` olarak fırlatılır.
+- Usage satırları aynı transaction'da outbox'a girer; `flushOutbox` + `d1UsageSink` onları D1'e idempotent taşır (`waitUntil` ya da alarm).
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="applyPlan" />
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="commitReply, doCommit" />
+
+<Source file="packages/core/src/cloudflare/index.ts" decl="d1UsageSink, flushOutbox" />
+
+Sayaçlar `(meter, period)` başınadır, boyutlardan bağımsızdır; dönem `periodOf(row)` ile seçilir (varsayılan tek ömürlük dönem `"*"`). Gömülü fiyatlama için bkz. [price() ve plan → gömülü mod](/pricemeter/price-and-plan/#gömülü-mod).
+
+<Aside>
+Bellek içi `memoryAdapters` ([/testing](/pricemeter/modules/testing/)) aynı sözleşmeyi uygular ve en kısa referanstır.
+</Aside>

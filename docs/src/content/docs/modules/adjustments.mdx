@@ -1,0 +1,30 @@
+---
+title: /adjustments
+description: "Dönem sonu plan kalemleri: asgari taahhüt, kredi, hacim düzeltmesi."
+---
+
+import Source from "~/components/Source.astro";
+
+<Source file="docs/src/snippets/modules.test.ts" region="adjustments" />
+
+`pricemeter/adjustments` bir `Plan` döndüren saf fonksiyonlardır; planı `metering.commit(plan)` ile yazarsın (A92). Ne zaman çalışacakları (cron, dönem kapanışı) uygulamanın kararıdır. Modül testindeki dikişi "plan kalemi üretmek"tir.
+
+| API | Plan | `refId` |
+| --- | --- | --- |
+| `minimumCommit({ account, minimumMicroUsd, spentMicroUsd, period, at, refType? })` | Açık varsa tek `charge` (eksik = asgari − harcanan); yoksa boş plan | `minimum_commit:{account}:{period}` (A103), `refType` varsayılan `"period"` |
+| `flatCredit({ account, amountMicroUsd, refType, refId, at })` | Tek **negatif** `charge` (kupon benzeri kredi, B27) | senin verdiğin |
+| `volumeTrueUp({ account, meter, dims?, rate, quantity, chargedMicroUsd, refType, refId, at })` | Dönemin tamamı bittiği kademeden fiyatlanır, farkı `charge` + usage satırı (`quantity: 0`, `detail.adjustment: true`) | senin verdiğin |
+
+<Source file="docs/src/snippets/modules.test.ts" region="trueup" />
+
+`volumeTrueUp`, `adjustmentTiming: "none"` ile kullanılır: dönem içinde her gözlem düştüğü kademeden ödenir, dönem sonunda bir kez düzeltilir (B6). Dönem toplamı tek gözlem değildir, bu yüzden `perObservation` kırpması uygulanmaz. `on_crossing` ile aynı düzeltme anında, gözlemle birlikte yapılır ([hacim düzeltmesi](/pricemeter/price-and-plan/#hacim-düzeltmesi)).
+
+Harcanan tutarı sen verirsin: ör. `sqliteAdapter.spent({ account, from, to })` dönem penceresindeki `charge` + `capture` toplamını döner.
+
+## Bunu kullanmadan nasıl yapardım
+
+Bir plan sadece iki listedir; elle kurabilirsin:
+
+<Source file="docs/src/snippets/modules.test.ts" region="adjustments-without" />
+
+Önemli olan tek şey **kararlı bir `refId`**: aynı dönemi iki kez kapatan bir cron'un ikinci planı `commit`'te no-op olmalı. `refId`'ye hesabı da koy: ledger tekilliği `(op, refType, refId)` üzerinden hesaplar arası geneldir, hesapsız bir `refId` ikinci hesabın kalemini sessizce düşürür.

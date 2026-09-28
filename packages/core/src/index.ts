@@ -33,7 +33,7 @@ export type {
 } from "./catalog.js";
 export { price, lineKey } from "./price.js";
 export type { Dims, PriceContext, PriceOptions, Priced, PricedLine } from "./price.js";
-export { rate, validateRate, defineRate, holdUpperBound, requiresUsage, tierAt, FREE_RATE, RateError } from "./rate.js";
+export { rate, validateRate, defineRate, holdUpperBound, requiresUsage, requiresCarry, tierAt, FREE_RATE, RateError } from "./rate.js";
 export type { BreakdownRow, Rate, RateInput, RateIssue, RateIssueCode, RateModel, RatePolicy, RateValidation, Rated, Tier, ValidRate } from "./rate.js";
 export type {
   CaptureOp,
