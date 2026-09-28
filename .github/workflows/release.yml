@@ -1,0 +1,32 @@
+name: Release
+
+# Manual: Actions → Release → Run workflow. Needs the NPM_TOKEN repository secret (an npm automation token).
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Pack and show what would be published, without publishing"
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run test:types
+      - run: bun run test
+      - run: bun run build
+      # bun publish rewrites workspace:* ranges; order matters: core first
+      - name: Publish
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          flags="--access public"
+          if [ "${{ inputs.dry-run }}" = "true" ]; then flags="$flags --dry-run"; fi
+          for p in core sqlite cloudflare; do (cd packages/$p && bun publish $flags); done
