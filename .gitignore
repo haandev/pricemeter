@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.astro/
+docs/src/content/docs/api/
+docs/src/content/docs/en/api/
+.wrangler/
+.DS_Store
+*.log
+*.tsbuildinfo
+.tmp/

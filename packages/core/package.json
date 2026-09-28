@@ -1,0 +1,64 @@
+{
+  "name": "pricemeter",
+  "version": "0.1.0",
+  "description": "A dumb, typed pricing engine: you give the tariff and usage so far, it computes the amount and tells you what to write.",
+  "license": "MIT",
+  "author": "Hakan Özoğlu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haandev/pricemeter.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://haandev.github.io/pricemeter/",
+  "keywords": [
+    "metering",
+    "pricing",
+    "usage-based-billing",
+    "tiered-pricing",
+    "prepaid",
+    "ledger"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+    },
+    "./rates": {
+      "import": { "types": "./dist/rates/index.d.ts", "default": "./dist/rates/index.js" },
+      "require": { "types": "./dist/rates/index.d.cts", "default": "./dist/rates/index.cjs" }
+    },
+    "./gauge": {
+      "import": { "types": "./dist/gauge/index.d.ts", "default": "./dist/gauge/index.js" },
+      "require": { "types": "./dist/gauge/index.d.cts", "default": "./dist/gauge/index.cjs" }
+    },
+    "./adjustments": {
+      "import": { "types": "./dist/adjustments/index.d.ts", "default": "./dist/adjustments/index.js" },
+      "require": { "types": "./dist/adjustments/index.d.cts", "default": "./dist/adjustments/index.cjs" }
+    },
+    "./testing": {
+      "import": { "types": "./dist/testing/index.d.ts", "default": "./dist/testing/index.js" },
+      "require": { "types": "./dist/testing/index.d.cts", "default": "./dist/testing/index.cjs" }
+    },
+    "./calendar": {
+      "import": { "types": "./dist/calendar/index.d.ts", "default": "./dist/calendar/index.js" },
+      "require": { "types": "./dist/calendar/index.d.cts", "default": "./dist/calendar/index.cjs" }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "tsup"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
