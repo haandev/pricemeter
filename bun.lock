@@ -20,7 +20,6 @@
       "name": "@pricemeter-examples/llm-gateway",
       "dependencies": {
         "pricemeter": "workspace:*",
-        "pricemeter-sqlite": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -28,7 +27,6 @@
       "name": "@pricemeter-examples/messaging",
       "dependencies": {
         "pricemeter": "workspace:*",
-        "pricemeter-cloudflare": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
@@ -46,33 +44,12 @@
       "name": "@pricemeter-examples/saas-seats",
       "dependencies": {
         "pricemeter": "workspace:*",
-        "pricemeter-sqlite": "workspace:*",
         "zod": "^4.6.5",
-      },
-    },
-    "packages/cloudflare": {
-      "name": "pricemeter-cloudflare",
-      "version": "0.1.0",
-      "devDependencies": {
-        "pricemeter": "workspace:*",
-      },
-      "peerDependencies": {
-        "pricemeter": "^0.1.0",
       },
     },
     "packages/core": {
       "name": "pricemeter",
       "version": "0.1.0",
-    },
-    "packages/sqlite": {
-      "name": "pricemeter-sqlite",
-      "version": "0.1.0",
-      "devDependencies": {
-        "pricemeter": "workspace:*",
-      },
-      "peerDependencies": {
-        "pricemeter": "^0.1.0",
-      },
     },
   },
   "packages": {
@@ -469,10 +446,6 @@
     "postcss-load-config": ["postcss-load-config@6.0.1", "", { "dependencies": { "lilconfig": "^3.1.1" }, "peerDependencies": { "jiti": ">=1.21.0", "postcss": ">=8.0.9", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["jiti", "postcss", "tsx", "yaml"] }, "sha512-oPtTM4oerL+UXmx+93ytZVN82RrlY/wPUV8IeDxFrzIjXOLF1pN+EmKPLbubvKHT2HC20xXsCAH2Z+CKV6Oz/g=="],
 
     "pricemeter": ["pricemeter@workspace:packages/core"],
-
-    "pricemeter-cloudflare": ["pricemeter-cloudflare@workspace:packages/cloudflare"],
-
-    "pricemeter-sqlite": ["pricemeter-sqlite@workspace:packages/sqlite"],
 
     "pure-rand": ["pure-rand@8.4.2", "", {}, "sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng=="],
 

@@ -30,7 +30,7 @@ await metering.observe("otp/sms", { country: "TR" }, 2, { type: "otp_send", id: 
 - `rate()` / `price()` — pure: three models (`graduated`, `volume`, `package`), `per`, flat fees, clamps, `per_event_up` or drift-free `cumulative` rounding, volume adjustments.
 - `observe` / `hold` / `extend` / `capture` / `release` — `getRate` → `price` → `commit`; holds are value objects.
 - Modules: `pricemeter/rates` (layered price table), `/gauge` (seats, GB), `/adjustments` (minimum commit, credits, true-up), `/calendar` (periods, billing cycles), `/testing` (memory adapters, `commitContract`).
+- Reference adapters: `pricemeter/sqlite` (one transaction per plan, prepaid gate, counters — `node:sqlite`, `bun:sqlite`, better-sqlite3) and `pricemeter/cloudflare` (per-account Durable Object ledger, counters, D1 usage outbox). No driver or Workers dependency: both use structural types.
 - Zero dependencies. ESM + CJS. Node ≥ 20, Bun, Cloudflare Workers. Dimensions and context via any Standard Schema library (zod, valibot, arktype) or plain types.
 
-Reference adapters: [`pricemeter-sqlite`](https://www.npmjs.com/package/pricemeter-sqlite), [`pricemeter-cloudflare`](https://www.npmjs.com/package/pricemeter-cloudflare).
 Docs: https://haandev.github.io/pricemeter/

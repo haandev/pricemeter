@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildMetering, type Rate } from "pricemeter";
 import { commitContract } from "pricemeter/testing";
-import { canonicalJson, sqliteAdapter } from "pricemeter-sqlite";
+import { canonicalJson, sqliteAdapter } from "pricemeter/sqlite";
 
 const fresh = (prepaid = true) => {
   const db = new DatabaseSync(":memory:");
@@ -12,7 +12,7 @@ const fresh = (prepaid = true) => {
   return { db, a };
 };
 
-describe("pricemeter-sqlite", () => {
+describe("pricemeter/sqlite", () => {
   it("passes the commit contract (prepaid and postpaid)", async () => {
     const make = (prepaid: boolean) => () => {
       const { a } = fresh(prepaid);

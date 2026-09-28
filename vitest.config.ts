@@ -11,8 +11,6 @@ export default defineConfig({
   },
   resolve: {
     alias: [
-      { find: /^pricemeter-sqlite$/, replacement: new URL("./packages/sqlite/src/index.ts", import.meta.url).pathname },
-      { find: /^pricemeter-cloudflare$/, replacement: new URL("./packages/cloudflare/src/index.ts", import.meta.url).pathname },
       { find: /^pricemeter\/(.*)$/, replacement: new URL("./packages/core/src/$1/index.ts", import.meta.url).pathname },
       { find: /^pricemeter$/, replacement: new URL("./packages/core/src/index.ts", import.meta.url).pathname },
     ],

@@ -16,7 +16,11 @@
     "usage-based-billing",
     "tiered-pricing",
     "prepaid",
-    "ledger"
+    "ledger",
+    "sqlite",
+    "cloudflare",
+    "durable-objects",
+    "d1"
   ],
   "type": "module",
   "sideEffects": false,
@@ -84,6 +88,26 @@
         "default": "./dist/calendar/index.cjs"
       }
     },
+    "./sqlite": {
+      "import": {
+        "types": "./dist/sqlite/index.d.ts",
+        "default": "./dist/sqlite/index.js"
+      },
+      "require": {
+        "types": "./dist/sqlite/index.d.cts",
+        "default": "./dist/sqlite/index.cjs"
+      }
+    },
+    "./cloudflare": {
+      "import": {
+        "types": "./dist/cloudflare/index.d.ts",
+        "default": "./dist/cloudflare/index.js"
+      },
+      "require": {
+        "types": "./dist/cloudflare/index.d.cts",
+        "default": "./dist/cloudflare/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "typesVersions": {
@@ -102,6 +126,12 @@
       ],
       "calendar": [
         "./dist/calendar/index.d.ts"
+      ],
+      "sqlite": [
+        "./dist/sqlite/index.d.ts"
+      ],
+      "cloudflare": [
+        "./dist/cloudflare/index.d.ts"
       ]
     }
   },

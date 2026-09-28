@@ -14,7 +14,7 @@ import {
   type AccountState,
   type CommitReply,
   type DurableStorageLike,
-} from "pricemeter-cloudflare";
+} from "pricemeter/cloudflare";
 import type { UsageRow } from "pricemeter";
 import { catalog, type Context } from "./catalog.js";
 

@@ -1,7 +1,7 @@
 /** The Durable Object Cloudflare instantiates: one per account, a thin wrapper over AccountCore. */
 import { DurableObject } from "cloudflare:workers";
 import type { Plan, PricedLine, Ref } from "pricemeter";
-import { d1UsageSink } from "pricemeter-cloudflare";
+import { d1UsageSink } from "pricemeter/cloudflare";
 import { AccountCore } from "./account.js";
 import type { Context } from "./catalog.js";
 import type { Env } from "./worker.js";

@@ -1,4 +1,7 @@
-import { canonicalJson, InsufficientCredit, type Commit, type Plan } from "pricemeter";
+import type { Commit } from "../catalog.js";
+import { InsufficientCredit } from "../errors.js";
+import type { Plan } from "../plan.js";
+import { canonicalJson } from "../util.js";
 
 /** The subset of a synchronous SQLite driver we use. `node:sqlite`, `bun:sqlite` and better-sqlite3 all fit. */
 export interface SqliteLike {

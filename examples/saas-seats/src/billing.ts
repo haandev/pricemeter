@@ -15,7 +15,7 @@ import { minimumCommit } from "pricemeter/adjustments";
 import { cycleKey, cycleWindow } from "pricemeter/calendar";
 import { integrate, type Sample } from "pricemeter/gauge";
 import { layeredRates, type PriceVersion } from "pricemeter/rates";
-import { sqliteAdapter, type SqliteLike } from "pricemeter-sqlite";
+import { sqliteAdapter, type SqliteLike } from "pricemeter/sqlite";
 import { z } from "zod";
 
 export const Context = z.object({

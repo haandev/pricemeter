@@ -8,7 +8,10 @@
  * - The Worker binds `doCommit(...)` as the metering `commit`. For embedded pricing, the Worker sends
  *   `plan.observe(...).lines` and the DO re-prices them with fresh counters via `metering.price()`.
  */
-import { canonicalJson, InsufficientCredit, type Commit, type Plan, type UsageRow } from "pricemeter";
+import type { Commit } from "../catalog.js";
+import { InsufficientCredit } from "../errors.js";
+import type { Plan, UsageRow } from "../plan.js";
+import { canonicalJson } from "../util.js";
 
 // Minimal structural types for Durable Object SQLite storage and D1 (no dependency on workers-types).
 export interface SqlCursor {

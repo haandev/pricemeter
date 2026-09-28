@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { validateRate, type Rate } from "pricemeter";
 import { minimumCommit } from "pricemeter/adjustments";
 import { layeredRates, scaleTiers } from "pricemeter/rates";
-import { sqliteAdapter } from "pricemeter-sqlite";
-import { d1UsageSink } from "pricemeter-cloudflare";
+import { sqliteAdapter } from "pricemeter/sqlite";
+import { d1UsageSink } from "pricemeter/cloudflare";
 
 describe("sqlite: minimumCommit across accounts", () => {
   it("second account's shortfall is silently dropped as a duplicate", async () => {

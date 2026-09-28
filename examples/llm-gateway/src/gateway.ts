@@ -10,7 +10,7 @@
 import { buildMetering, type Rate } from "pricemeter";
 import { monthWindow } from "pricemeter/calendar";
 import { applyDiscount } from "pricemeter/rates";
-import { sqliteAdapter, type SqliteLike } from "pricemeter-sqlite";
+import { sqliteAdapter, type SqliteLike } from "pricemeter/sqlite";
 import { z } from "zod";
 
 export const MODELS = ["opus", "sonnet", "haiku"] as const;

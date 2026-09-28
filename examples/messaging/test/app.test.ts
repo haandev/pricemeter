@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { D1_USAGE_SCHEMA, d1UsageSink } from "pricemeter-cloudflare";
+import { D1_USAGE_SCHEMA, d1UsageSink } from "pricemeter/cloudflare";
 import type { PriceVersion } from "pricemeter/rates";
 import { AccountCore } from "../src/account.js";
 import { createApp, type OtpRecord, type WindowMessage } from "../src/app.js";
