@@ -1,0 +1,10 @@
+{
+  "name": "@pricemeter-examples/saas-seats",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pricemeter": "workspace:*",
+    "pricemeter-sqlite": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

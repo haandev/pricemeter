@@ -14,7 +14,8 @@
     "typecheck": "tsc -b",
     "coverage": "vitest run --coverage",
     "docs:dev": "bun run --cwd docs dev",
-    "docs:build": "bun run --cwd docs build"
+    "docs:build": "bun run --cwd docs build",
+    "test:examples-types": "tsc -p examples/llm-gateway && tsc -p examples/saas-seats && tsc -p examples/messaging"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",

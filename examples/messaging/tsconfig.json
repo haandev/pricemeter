@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "@cloudflare/workers-types"],
+    "paths": {
+      "pricemeter": ["../../packages/core/src/index.ts"],
+      "pricemeter/*": ["../../packages/core/src/*/index.ts"],
+      "pricemeter-sqlite": ["../../packages/sqlite/src/index.ts"],
+      "pricemeter-cloudflare": ["../../packages/cloudflare/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

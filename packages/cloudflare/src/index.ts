@@ -11,12 +11,13 @@
 import { InsufficientCredit, type Commit, type Plan, type UsageRow } from "pricemeter";
 
 // Minimal structural types for Durable Object SQLite storage and D1 (no dependency on workers-types).
-export interface SqlCursor<T = Record<string, unknown>> {
-  toArray(): T[];
-  one(): T;
+export interface SqlCursor {
+  toArray(): Record<string, unknown>[];
+  one(): Record<string, unknown>;
 }
+/** Non-generic on purpose: Cloudflare's generic `exec<T>` is assignable to it, a generic one would not be. */
 export interface SqlStorage {
-  exec<T = Record<string, unknown>>(query: string, ...bindings: unknown[]): SqlCursor<T>;
+  exec(query: string, ...bindings: any[]): SqlCursor;
 }
 export interface DurableStorageLike {
   sql: SqlStorage;
@@ -55,7 +56,7 @@ export interface AccountState {
 }
 
 export function accountState(sql: SqlStorage): AccountState {
-  const r = sql.exec<{ balance: number; reserved: number }>(`SELECT balance, reserved FROM pm_account WHERE id = 1`).one();
+  const r = sql.exec(`SELECT balance, reserved FROM pm_account WHERE id = 1`).one() as { balance: number; reserved: number };
   const balance = Number(r.balance);
   const reserved = Number(r.reserved);
   return { balance, reserved, available: balance - reserved };
@@ -63,7 +64,7 @@ export function accountState(sql: SqlStorage): AccountState {
 
 /** Units counted for `meter` in `period` in this account. The `usedSoFar` source. */
 export function accountUsed(sql: SqlStorage, meter: string, period = "*"): number {
-  const rows = sql.exec<{ used: number }>(`SELECT used FROM pm_counters WHERE meter = ? AND period = ?`, meter, period).toArray();
+  const rows = sql.exec(`SELECT used FROM pm_counters WHERE meter = ? AND period = ?`, meter, period).toArray() as { used: number }[];
   return Number(rows[0]?.used ?? 0);
 }
 
@@ -170,7 +171,7 @@ export function doCommit(stub: (accountId: string) => { commit(plan: Plan): Prom
 
 /** Oldest outbox rows, for shipping to D1. Pass the returned `upTo` to `ackOutbox` once written. */
 export function readOutbox(sql: SqlStorage, limit = 100): { rows: UsageRow[]; upTo: number } {
-  const rs = sql.exec<{ seq: number; row: string }>(`SELECT seq, row FROM pm_outbox ORDER BY seq LIMIT ?`, limit).toArray();
+  const rs = sql.exec(`SELECT seq, row FROM pm_outbox ORDER BY seq LIMIT ?`, limit).toArray() as { seq: number; row: string }[];
   return { rows: rs.map((r) => JSON.parse(r.row) as UsageRow), upTo: rs.length ? Number(rs[rs.length - 1]!.seq) : 0 };
 }
 

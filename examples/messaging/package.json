@@ -1,0 +1,18 @@
+{
+  "name": "@pricemeter-examples/messaging",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check": "wrangler deploy --dry-run --outdir .wrangler/dist"
+  },
+  "dependencies": {
+    "pricemeter": "workspace:*",
+    "pricemeter-cloudflare": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260928.1",
+    "wrangler": "^4.143.0"
+  }
+}
