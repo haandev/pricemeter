@@ -32,6 +32,6 @@ describe("L9 Lago min_amount / pay_in_advance / prorated", () => {
 
   it("min_amount: top the charge up to its minimum at close", () => {
     const plan = minimumCommit({ account: "acme", minimumMicroUsd: 10_000_000, spentMicroUsd: 4_000_000, period: "2026-09:api", at: Date.parse("2026-10-01T00:00:00Z") });
-    expect(plan.ledger).toMatchObject([{ amount: 6_000_000, refId: "minimum_commit:2026-09:api" }]);
+    expect(plan.ledger).toMatchObject([{ amount: 6_000_000, refId: "minimum_commit:acme:2026-09:api" }]);
   });
 });

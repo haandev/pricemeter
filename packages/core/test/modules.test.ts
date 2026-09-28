@@ -64,7 +64,7 @@ describe("/gauge", () => {
 describe("/adjustments", () => {
   it("minimumCommit charges the shortfall once", () => {
     expect(minimumCommit({ account: "a", minimumMicroUsd: 100, spentMicroUsd: 30, period: "2026-09", at: 1 })).toEqual({
-      ledger: [{ op: "charge", account: "a", amount: 70, refType: "period", refId: "minimum_commit:2026-09", at: 1 }],
+      ledger: [{ op: "charge", account: "a", amount: 70, refType: "period", refId: "minimum_commit:a:2026-09", at: 1 }],
       usage: [],
     });
     expect(minimumCommit({ account: "a", minimumMicroUsd: 100, spentMicroUsd: 130, period: "p", at: 1 })).toEqual({ ledger: [], usage: [] });

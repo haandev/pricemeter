@@ -8,7 +8,7 @@
  * - The Worker binds `doCommit(...)` as the metering `commit`. For embedded pricing, the Worker sends
  *   `plan.observe(...).lines` and the DO re-prices them with fresh counters via `metering.price()`.
  */
-import { InsufficientCredit, type Commit, type Plan, type UsageRow } from "pricemeter";
+import { canonicalJson, InsufficientCredit, type Commit, type Plan, type UsageRow } from "pricemeter";
 
 // Minimal structural types for Durable Object SQLite storage and D1 (no dependency on workers-types).
 export interface SqlCursor {
@@ -31,6 +31,7 @@ export interface D1Like {
 const DDL = [
   `CREATE TABLE IF NOT EXISTS pm_ledger (type TEXT NOT NULL, ref_type TEXT NOT NULL, ref_id TEXT NOT NULL, amount INTEGER NOT NULL, hold_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (type, ref_type, ref_id))`,
   `CREATE TABLE IF NOT EXISTS pm_usage_seen (ref_type TEXT NOT NULL, ref_id TEXT NOT NULL, PRIMARY KEY (ref_type, ref_id))`,
+  `CREATE TABLE IF NOT EXISTS pm_holds (hold_id TEXT PRIMARY KEY, reserved INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS pm_counters (meter TEXT NOT NULL, period TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (meter, period))`,
   `CREATE TABLE IF NOT EXISTS pm_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, row TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS pm_account (id INTEGER PRIMARY KEY CHECK (id = 1), balance INTEGER NOT NULL, reserved INTEGER NOT NULL)`,
@@ -97,6 +98,14 @@ export function applyPlan(storage: DurableStorageLike, plan: Plan, opts: ApplyOp
         op.op === "charge" ? null : op.holdId,
         op.at,
       );
+      const outstanding =
+        op.op === "charge" ? 0 : Number((sql.exec(`SELECT reserved FROM pm_holds WHERE hold_id = ?`, op.holdId).toArray()[0] as { reserved?: number } | undefined)?.reserved ?? 0);
+      const moveHold = (d: number) =>
+        sql.exec(
+          `INSERT INTO pm_holds (hold_id, reserved) VALUES (?, ?) ON CONFLICT (hold_id) DO UPDATE SET reserved = reserved + excluded.reserved`,
+          (op as { holdId: string }).holdId,
+          d,
+        );
       switch (op.op) {
         case "charge":
           balance -= op.amount;
@@ -106,13 +115,20 @@ export function applyPlan(storage: DurableStorageLike, plan: Plan, opts: ApplyOp
         case "extend":
           reserved += op.amount;
           debit += op.amount;
+          moveHold(op.amount);
           break;
-        case "capture":
+        case "capture": {
+          const freed = Math.max(0, Math.min(op.amount, outstanding));
           balance -= op.amount;
-          reserved -= op.amount;
+          reserved -= freed;
+          moveHold(-freed);
           break;
+        }
         case "release":
-          reserved -= op.amount;
+          // frees what is actually reserved, whatever the (possibly retried) plan computed
+          reserved -= outstanding;
+          moveHold(-outstanding);
+          sql.exec(`UPDATE pm_ledger SET amount = ? WHERE type = ? AND ref_type = ? AND ref_id = ?`, outstanding, op.op, op.refType, op.refId);
           break;
       }
     }
@@ -191,7 +207,7 @@ export function d1UsageSink(db: D1Like): (rows: readonly UsageRow[]) => Promise<
     );
     await db.batch(
       rows.map((u) =>
-        stmt.bind(`${u.refType}:${u.refId}`, u.account, u.meter, JSON.stringify(u.dims), u.quantity, u.amount, u.rateId ?? null, JSON.stringify(u.detail), u.refType, u.refId, u.at),
+        stmt.bind(`${u.refType}:${u.refId}`, u.account, u.meter, canonicalJson(u.dims), u.quantity, u.amount, u.rateId ?? null, JSON.stringify(u.detail), u.refType, u.refId, u.at),
       ),
     );
   };

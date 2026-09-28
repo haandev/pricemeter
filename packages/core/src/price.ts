@@ -60,6 +60,7 @@ export function assignRefIds(lines: readonly { meter: string; feeder?: { meter: 
 export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext, opts: PriceOptions = {}): Priced {
   const at0 = opts.at ?? Date.now();
   const offsets = new Map<string, number>();
+  const carries = new Map<string, number>();
   const rated: Rated[] = [];
 
   for (const l of lines) {
@@ -78,8 +79,10 @@ export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext,
     const offset = offsets.get(key) ?? 0;
     offsets.set(key, offset + l.quantity);
     const input: Parameters<typeof rate>[0] = { rate: l.rate, usedSoFar: (l.usedSoFar ?? 0) + offset, quantity: l.quantity };
-    if (l.carry !== undefined) input.carry = l.carry;
+    // a later line with the same key continues from the earlier line's remainder, not the original carry
+    if (l.carry !== undefined) input.carry = carries.get(key) ?? l.carry;
     const r = rate(input);
+    if (l.carry !== undefined) carries.set(key, r.carry);
     rated.push(r);
 
     const refId = refIds[i]!;

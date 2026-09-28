@@ -1,4 +1,4 @@
-import { InsufficientCredit, type Commit, type Plan } from "pricemeter";
+import { canonicalJson, InsufficientCredit, type Commit, type Plan } from "pricemeter";
 
 /** The subset of a synchronous SQLite driver we use. `node:sqlite`, `bun:sqlite` and better-sqlite3 all fit. */
 export interface SqliteLike {
@@ -39,17 +39,7 @@ export interface SqliteAdapter {
   credit(account: string, amountMicroUsd: number): void;
 }
 
-/** Canonical JSON: sorted keys, so equal dims compare equal in SQL. */
-export function canonicalJson(x: unknown): string {
-  if (x === null || typeof x !== "object") return JSON.stringify(x);
-  if (Array.isArray(x)) return `[${x.map(canonicalJson).join(",")}]`;
-  const o = x as Record<string, unknown>;
-  return `{${Object.keys(o)
-    .sort()
-    .filter((k) => o[k] !== undefined)
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-    .join(",")}}`;
-}
+export { canonicalJson };
 
 export function schema(prefix = ""): string {
   return `
@@ -62,6 +52,8 @@ CREATE TABLE IF NOT EXISTS ${prefix}ledger_entries (
   id TEXT PRIMARY KEY, account_id TEXT NOT NULL, type TEXT NOT NULL, amount_micro_usd INTEGER NOT NULL, hold_id TEXT,
   ref_type TEXT NOT NULL, ref_id TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE (type, ref_type, ref_id));
 CREATE INDEX IF NOT EXISTS ${prefix}ledger_entries_account_at ON ${prefix}ledger_entries (account_id, at);
+CREATE TABLE IF NOT EXISTS ${prefix}holds (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, reserved_micro_usd INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS ${prefix}accounts (
   id TEXT PRIMARY KEY, balance_micro_usd INTEGER NOT NULL DEFAULT 0, reserved_micro_usd INTEGER NOT NULL DEFAULT 0);
 `;
@@ -82,6 +74,11 @@ export function sqliteAdapter(o: SqliteAdapterOptions): SqliteAdapter {
     ensure: db.prepare(`INSERT INTO ${p}accounts (id) VALUES (?) ON CONFLICT DO NOTHING`),
     move: db.prepare(`UPDATE ${p}accounts SET balance_micro_usd = balance_micro_usd + ?, reserved_micro_usd = reserved_micro_usd + ? WHERE id = ?`),
     get: db.prepare(`SELECT balance_micro_usd AS balance, reserved_micro_usd AS reserved FROM ${p}accounts WHERE id = ?`),
+    holdGet: db.prepare(`SELECT reserved_micro_usd AS r FROM ${p}holds WHERE id = ?`),
+    holdAdd: db.prepare(
+      `INSERT INTO ${p}holds (id, account_id, reserved_micro_usd) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET reserved_micro_usd = reserved_micro_usd + excluded.reserved_micro_usd`,
+    ),
+    fixAmount: db.prepare(`UPDATE ${p}ledger_entries SET amount_micro_usd = ? WHERE id = ?`),
   });
   const s = () => (st ??= prepareAll());
 
@@ -107,6 +104,7 @@ export function sqliteAdapter(o: SqliteAdapterOptions): SqliteAdapter {
         const r = q.ledger.run(`${op.op}:${op.refType}:${op.refId}`, op.account, op.op, op.amount, holdId, op.refType, op.refId, op.at);
         if (Number(r.changes) === 0) continue; // retry: already written
         const m = move(op.account);
+        const outstanding = op.op === "charge" ? 0 : Number((q.holdGet.get(op.holdId) as { r: number | bigint } | undefined)?.r ?? 0);
         switch (op.op) {
           case "charge":
             m.balance -= op.amount;
@@ -116,13 +114,20 @@ export function sqliteAdapter(o: SqliteAdapterOptions): SqliteAdapter {
           case "extend":
             m.reserved += op.amount;
             m.debit += op.amount;
+            q.holdAdd.run(op.holdId, op.account, op.amount);
             break;
-          case "capture":
+          case "capture": {
+            const freed = Math.max(0, Math.min(op.amount, outstanding));
             m.balance -= op.amount;
-            m.reserved -= op.amount;
+            m.reserved -= freed;
+            q.holdAdd.run(op.holdId, op.account, -freed);
             break;
+          }
           case "release":
-            m.reserved -= op.amount;
+            // frees what is actually reserved, whatever the (possibly retried) plan computed
+            m.reserved -= outstanding;
+            q.holdAdd.run(op.holdId, op.account, -outstanding);
+            q.fixAmount.run(outstanding, `${op.op}:${op.refType}:${op.refId}`);
             break;
         }
       }

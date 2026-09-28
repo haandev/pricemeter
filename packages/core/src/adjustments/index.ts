@@ -12,7 +12,7 @@ const assertInt = (name: string, n: number) => {
 
 /**
  * Charges the shortfall between a period's spend and its minimum commitment.
- * refId `minimum_commit:{period}` makes it safe to run twice.
+ * refId `minimum_commit:{account}:{period}` makes it safe to run twice.
  */
 export function minimumCommit(i: {
   account: string;
@@ -28,7 +28,7 @@ export function minimumCommit(i: {
   if (shortfall <= 0) return { ledger: [], usage: [] };
   return {
     ledger: [
-      { op: "charge", account: i.account, amount: shortfall as MicroUsd, refType: i.refType ?? "period", refId: `minimum_commit:${i.period}`, at: i.at },
+      { op: "charge", account: i.account, amount: shortfall as MicroUsd, refType: i.refType ?? "period", refId: `minimum_commit:${i.account}:${i.period}`, at: i.at },
     ],
     usage: [],
   };
@@ -61,7 +61,9 @@ export function volumeTrueUp(i: {
 }): Plan {
   if (i.rate.model !== "volume") throw new TypeError("volumeTrueUp needs a volume rate");
   assertInt("chargedMicroUsd", i.chargedMicroUsd);
-  const r = rateFn({ rate: i.rate, usedSoFar: 0, quantity: i.quantity });
+  // the period total is not one observation: per-observation clamps don't apply to it
+  const { perObservation: _clamp, ...policy } = i.rate.policy ?? {};
+  const r = rateFn({ rate: { ...i.rate, policy } as ValidRate, usedSoFar: 0, quantity: i.quantity });
   const diff = r.totalMicroUsd - i.chargedMicroUsd;
   if (diff === 0) return { ledger: [], usage: [] };
   const row: Plan["usage"][number] = {
