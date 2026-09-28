@@ -75,6 +75,7 @@ Success: `{ ok: true, charged, lines }` (holds and captures add `holdId` and `ho
 | `no_price` | `getRate` returned `null` and `ifMissing` is `reject` | nothing |
 | `usage_required` | The tariff needs `usedSoFar` and none was given | nothing |
 | `insufficient_credit` | `commit` threw `InsufficientCredit` (also matched by name, so it survives RPC) | nothing |
+| `quota_exceeded` | `usedSoFar` + requested > the `limit` from `getRate`, or `commit` threw `QuotaExceeded`; `cause: { meter, limit, used, requested }` | nothing |
 | `invalid_context` | The context failed its schema, `accountId` is not a string, or the hold belongs to another account | nothing |
 | `invalid_dims` | The dimensions failed the meter's schema | nothing |
 | `invalid_rate` | A tariff from `getRate` or capture `{ rate }` failed `validateRate` | nothing |
@@ -90,3 +91,19 @@ Programmer errors throw instead of returning a `Result`: a meter not in the cata
 ## The balance gate
 
 “Balance ≥ amount” is not in the library. `commit` throws `InsufficientCredit` when short and the library returns `insufficient_credit`. Holds and extends count as debits too: a prepaid `commit` refuses a reservation beyond the available balance. Postpaid means `commit` never throws (B26).
+
+## Quotas
+
+The balance gate answers "can they pay?"; a quota answers "are they allowed?". Next to `rate` and `usedSoFar`, `getRate` can return a `limit` for the same period (A107):
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="quota" />
+
+- **All or nothing.** At 9/10 a request for 4 is refused entirely. Partial use is the app's call: `cause.limit − cause.used` is what's left.
+- **Per meter.** Lines of the same meter add up, whatever their dims. `limit: 0` means the meter is not in the plan (unlike `no_price`: priced, but not allowed).
+- **Pools.** A limit on a pool meter caps every channel that feeds it ("SMS + WhatsApp 1,000 in total, then stop").
+- **Atomic.** The library's early check can't see two concurrent requests that both read 999. So the limit is written on the usage row and the adapter re-checks it inside `commit`'s transaction, throwing `QuotaExceeded` ([adapter contract](/pricemeter/en/adapters/#the-commit-contract)).
+- **Holds.** `hold` and `extend` check the reserved quantity; `capture` is never refused (a sent SMS must be recorded).
+- **Not seats.** Counters only grow. Limits on levels that go up and down, like seats, live in the app (A108):
+
+<Source file="examples/saas-seats/src/seats.ts" decl="SeatRegistry" />
+

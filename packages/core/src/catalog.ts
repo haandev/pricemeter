@@ -1,4 +1,4 @@
-import { isInsufficientCredit } from "./errors.js";
+import { isInsufficientCredit, isQuotaExceeded } from "./errors.js";
 import {
   planCapture,
   planExtend,
@@ -126,6 +126,11 @@ export interface RateAnswer {
   /** Units already used in the tier period. Required for tiered, flat, volume and package rates. */
   usedSoFar?: number;
   carry?: number;
+  /**
+   * Hard cap on this meter's units in the period `usedSoFar` counts. Beyond it the call returns
+   * `quota_exceeded` and nothing is written; `0` means "not in this plan". Omit for no limit.
+   */
+  limit?: number;
 }
 type RateArgs<S extends CatalogState> =
   S["meters"] extends infer E ? (E extends MeterEntry ? [meter: E["id"], dims: E["dims"], ctx: S["ctx"], at: number] : never) : never;
@@ -611,6 +616,7 @@ class MeteringImpl {
       let r: ValidRate;
       let used: number | undefined;
       let carry: number | undefined;
+      let limit: number | undefined;
       if (ans === null || ans === undefined) {
         if ((opts.ifMissing ?? "reject") === "reject") return fail("no_price", { meter: l.meter });
         r = FREE_RATE;
@@ -620,11 +626,17 @@ class MeteringImpl {
         r = v.rate;
         used = ans.usedSoFar;
         carry = ans.carry;
+        if (ans.limit !== undefined) {
+          if (!Number.isSafeInteger(ans.limit) || ans.limit < 0)
+            return fail("invalid_rate", { meter: l.meter, cause: `limit must be a non-negative integer, got ${ans.limit}` });
+          limit = ans.limit;
+        }
       }
       if (overrides[l.meter] !== undefined) used = overrides[l.meter];
       const pl: PricedHoldLine = { meter: l.meter, dims: l.dims, quantity: l.quantity, rate: r, at };
       if (used !== undefined) pl.usedSoFar = used;
       if (carry !== undefined) pl.carry = carry;
+      if (limit !== undefined) pl.limit = limit;
       if (l.feeder) pl.feeder = l.feeder;
       out.push(pl);
     }
@@ -638,6 +650,10 @@ class MeteringImpl {
       await this.#commit(plan);
       return { ok: true };
     } catch (e) {
+      if (isQuotaExceeded(e)) {
+        const d = e.details;
+        return fail("quota_exceeded", d?.meter ? { meter: d.meter, cause: d } : { cause: e });
+      }
       return fail(isInsufficientCredit(e) ? "insufficient_credit" : "commit_failed", { cause: e });
     }
   }

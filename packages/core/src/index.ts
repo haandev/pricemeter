@@ -53,7 +53,8 @@ export type {
   UsageRow,
 } from "./plan.js";
 export type { CaptureLine, CaptureResult, CaptureSuccess, Hold, HoldLike, HoldLine, HoldResult, HoldSuccess } from "./hold.js";
-export { InsufficientCredit, isInsufficientCredit } from "./errors.js";
+export { InsufficientCredit, isInsufficientCredit, QuotaExceeded, isQuotaExceeded } from "./errors.js";
+export type { QuotaDetails } from "./errors.js";
 export { microUsd, usd } from "./money.js";
 export { canonicalJson } from "./util.js";
 export type { MicroUsd } from "./money.js";

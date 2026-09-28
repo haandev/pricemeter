@@ -1,5 +1,5 @@
 import type { MicroUsd } from "./money.js";
-import { fail, type Plan, type Ref, type Result, type ResultLine, type UsageRow } from "./plan.js";
+import { fail, type Failure, type Plan, type Ref, type Result, type ResultLine, type UsageRow } from "./plan.js";
 import { missingPosition, rate, type Rated, type ValidRate } from "./rate.js";
 
 export type Dims = Record<string, unknown>;
@@ -17,6 +17,12 @@ export interface PricedLine<M extends string = string, D = Dims> {
   at?: number;
   /** Set on pool lines produced by `feeds`. */
   feeder?: { meter: string; weight: number };
+  /**
+   * Hard cap for this meter in the period `usedSoFar` counts. `price()` refuses with `quota_exceeded` when
+   * `usedSoFar` + earlier units of the same meter in this call + `quantity` exceed it; the row carries it so
+   * `commit` can enforce it atomically.
+   */
+  limit?: number;
 }
 
 export interface PriceContext {
@@ -63,11 +69,14 @@ export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext,
   const carries = new Map<string, number>();
   const rated: Rated[] = [];
 
+  const none = { ledger: [], usage: [] };
   for (const l of lines) {
-    if (missingPosition(l.rate, l.usedSoFar, l.carry)) {
-      return { result: fail("usage_required", { meter: l.meter }), plan: { ledger: [], usage: [] }, rated: [] };
+    if (missingPosition(l.rate, l.usedSoFar, l.carry) || (l.limit !== undefined && l.usedSoFar === undefined)) {
+      return { result: fail("usage_required", { meter: l.meter }), plan: none, rated: [] };
     }
   }
+  const quota = checkQuota(lines);
+  if (quota) return { result: quota, plan: none, rated: [] };
 
   const refIds = assignRefIds(lines, ref);
   const plan: Plan = { ledger: [], usage: [] };
@@ -99,6 +108,7 @@ export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext,
       at,
     };
     if (l.rate.id !== undefined) row.rateId = l.rate.id;
+    if (l.limit !== undefined) row.limit = l.limit;
     if (l.feeder) {
       row.detail.feeder = l.feeder.meter;
       row.detail.weight = l.feeder.weight;
@@ -137,4 +147,22 @@ export function price(lines: readonly PricedLine[], ref: Ref, ctx: PriceContext,
   });
 
   return { result: { ok: true, charged: charged as MicroUsd, lines: out }, plan, rated };
+}
+
+/**
+ * The early (non-atomic) quota check. Limits are per meter: lines of the same meter in one call add up,
+ * whatever their dims. Returns the failure for the first line that would pass its limit.
+ */
+export function checkQuota(lines: readonly { meter: string; quantity: number; usedSoFar?: number; limit?: number }[]): Failure | null {
+  const earlier = new Map<string, number>();
+  for (const l of lines) {
+    const before = earlier.get(l.meter) ?? 0;
+    earlier.set(l.meter, before + l.quantity);
+    if (l.limit === undefined) continue;
+    const used = (l.usedSoFar ?? 0) + before;
+    if (used + l.quantity > l.limit) {
+      return fail("quota_exceeded", { meter: l.meter, cause: { meter: l.meter, limit: l.limit, used, requested: l.quantity } });
+    }
+  }
+  return null;
 }

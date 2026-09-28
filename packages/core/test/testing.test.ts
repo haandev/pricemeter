@@ -15,7 +15,7 @@ describe("/testing", () => {
       },
     });
     expect(res.checks.filter((c) => !c.ok)).toEqual([]);
-    expect(res.checks).toHaveLength(7);
+    expect(res.checks).toHaveLength(8);
   });
 
   it("commitContract reports broken adapters", async () => {
@@ -32,7 +32,7 @@ describe("/testing", () => {
     expect(res.ok).toBe(false);
     expect(res.checks.find((c) => c.name.startsWith("repeated"))).toMatchObject({ ok: false });
     const post = await commitContract({ prepaid: false, make: () => ({ commit: async () => {}, seed: () => {}, snapshot: () => ({ usage: 0, ledger: 0, available: 0 }) }) });
-    expect(post.checks).toHaveLength(5);
+    expect(post.checks).toHaveLength(6);
     expect(post.checks.every((c) => !c.ok)).toBe(true);
   });
 

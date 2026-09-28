@@ -67,6 +67,11 @@ export interface UsageRow {
   refType: string;
   refId: string;
   at: number;
+  /**
+   * The period's hard cap for this meter (from `getRate`). `commit` must refuse the whole plan with
+   * `QuotaExceeded` if the meter's counter for the row's period plus `quantity` would exceed it.
+   */
+  limit?: number;
 }
 
 /**
@@ -92,6 +97,7 @@ export type FailureReason =
   | "no_price"
   | "usage_required"
   | "insufficient_credit"
+  | "quota_exceeded"
   | "invalid_context"
   | "invalid_dims"
   | "invalid_rate"

@@ -11,12 +11,13 @@ Kütüphanenin dünyaya iki kapısı var: tarife ve kullanımı soran `getRate`,
 ## `getRate` sözleşmesi
 
 ```ts
-(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } | null | undefined   // ya da Promise'i
+(meter, dims, ctx, at) => { rate, usedSoFar?, carry?, limit? } | null | undefined   // ya da Promise'i
 ```
 
 - **Tarifenin tamamını** dön; kademe seçimini `rate()` yapar. Ham obje dönebilirsin, kütüphane doğrular (`invalid_rate`).
 - `usedSoFar`: bu hesabın bu sayaçta, **seçtiğin dönemde** şimdiye kadarki adedi. Kademeli, `volume`, `package`, sabit ücretli ve `cumulative` tarifelerde zorunlu; eksikse `usage_required` ([kurallar](/pricemeter/rate-models/#usedsofar)).
 - `carry`: yalnızca `cumulative` yuvarlamada, bir önceki usage satırının `detail.carry`'si.
+- `limit`: bu sayacın `usedSoFar` ile aynı dönemdeki üst sınırı; aşan çağrı `quota_exceeded` ([kota](/pricemeter/observe-and-hold/#kota)). `usedSoFar` olmadan `usage_required`.
 - `at`'i nasıl yorumlayacağın (olay anı mı, hesap anı mı) senin kararın. Dönem sonu gözlemleri `at: window.to − 1` ile yapılır, çünkü pencereler yarı açıktır ve `window.to` bir sonraki dönemi seçer (A98).
 - Sayacın kapsamı senin: referans adapter'lar sayaç başına, boyutsuz sayar. Boyut başına kademe istiyorsan `getRate`'te `dims` ile say (`sqliteAdapter.usedSoFar({ dims })`; A100).
 - `null` = fiyat yok → `ifMissing`. Fırlatma: bir `getRate` hatası `observe`'dan istisna olarak çıkar.
@@ -34,6 +35,7 @@ Kütüphanenin dünyaya iki kapısı var: tarife ve kullanımı soran `getRate`,
 | **İdempotent**: aynı `(refType, refId)` ikinci kez gelirse sessizce atla (ledger'da `op` ile birlikte) | Uygulama retry'ı güvenli olsun |
 | Bakiye yalnızca **gerçekten eklenen** ledger satırlarıyla hareket eder | Retry bakiyeyi iki kez düşürmesin |
 | Prepaid: `balance − reserved < 0` olacaksa `InsufficientCredit` fırlat, hiçbir şey yazma | Bakiye kapısı yazımla aynı atomik adımda |
+| `limit` taşıyan yeni bir usage satırı için: satırın dönemindeki sayaç + `quantity` > `limit` olacaksa `QuotaExceeded` fırlat, hiçbir şey yazma | Kota kapısı da yazımla aynı atomik adımda (A107). SQLite: `windowOf`, DO: `periodOf` |
 | `charge` bakiyeyi düşürür (negatifse artırır); `hold`/`extend` `reserved`'ı artırır ve borç sayılır; `capture` bakiyeyi düşürür; `release` rezervasyonu serbest bırakır | Kullanılabilir = `balance − reserved` |
 | Hold başına **gerçekten ayrılan** tutarı tut: `capture` rezervasyonu en fazla onu kadar düşürür, `release` planın tutarını değil onu serbest bırakır (A102) | Farklı tutarla tekrarlanan bir hold no-op yazılır ama yeniden hesaplanmış bir `upperBound` döner; plana güvenen release rezervasyonu kaydırır |
 | Başka her hata için fırlat | Lib `commit_failed` döner, `cause`'ta hata |

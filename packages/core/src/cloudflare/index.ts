@@ -9,7 +9,7 @@
  *   `plan.observe(...).lines` and the DO re-prices them with fresh counters via `metering.price()`.
  */
 import type { Commit } from "../catalog.js";
-import { InsufficientCredit } from "../errors.js";
+import { InsufficientCredit, isQuotaExceeded, QuotaExceeded, type QuotaDetails } from "../errors.js";
 import type { Plan, UsageRow } from "../plan.js";
 import { canonicalJson } from "../util.js";
 
@@ -145,6 +145,11 @@ export function applyPlan(storage: DurableStorageLike, plan: Plan, opts: ApplyOp
       const seen = sql.exec(`SELECT 1 AS x FROM pm_usage_seen WHERE ref_type = ? AND ref_id = ?`, row.refType, row.refId).toArray();
       if (seen.length) continue;
       sql.exec(`INSERT INTO pm_usage_seen (ref_type, ref_id) VALUES (?, ?)`, row.refType, row.refId);
+      if (row.limit !== undefined) {
+        const used = accountUsed(sql, row.meter, periodOf(row));
+        // throwing inside transactionSync rolls the whole plan back
+        if (used + row.quantity > row.limit) throw new QuotaExceeded({ meter: row.meter, limit: row.limit, used, requested: row.quantity, account: row.account });
+      }
       if (row.quantity) {
         sql.exec(
           `INSERT INTO pm_counters (meter, period, used) VALUES (?, ?, ?) ON CONFLICT (meter, period) DO UPDATE SET used = used + excluded.used`,
@@ -159,7 +164,10 @@ export function applyPlan(storage: DurableStorageLike, plan: Plan, opts: ApplyOp
 }
 
 /** Result of the DO's commit RPC. Errors don't survive RPC reliably, so insufficiency is a value. */
-export type CommitReply = { ok: true } | { ok: false; reason: "insufficient_credit"; message: string };
+export type CommitReply =
+  | { ok: true }
+  | { ok: false; reason: "insufficient_credit"; message: string }
+  | { ok: false; reason: "quota_exceeded"; message: string; details: QuotaDetails };
 
 /** Wraps `applyPlan` for an RPC method: returns a `CommitReply` instead of throwing `InsufficientCredit`. */
 export function commitReply(storage: DurableStorageLike, plan: Plan, opts?: ApplyOptions): CommitReply {
@@ -169,6 +177,7 @@ export function commitReply(storage: DurableStorageLike, plan: Plan, opts?: Appl
   } catch (e) {
     if (e instanceof InsufficientCredit || (e as Error)?.name === "InsufficientCredit")
       return { ok: false, reason: "insufficient_credit", message: (e as Error).message };
+    if (isQuotaExceeded(e) && e.details) return { ok: false, reason: "quota_exceeded", message: (e as unknown as Error).message, details: e.details };
     throw e;
   }
 }
@@ -184,7 +193,7 @@ export function doCommit(stub: (accountId: string) => { commit(plan: Plan): Prom
     const [account] = accounts;
     if (account === undefined) return;
     const reply = await stub(account).commit(plan);
-    if (!reply.ok) throw new InsufficientCredit(reply.message);
+    if (!reply.ok) throw reply.reason === "quota_exceeded" ? new QuotaExceeded(reply.details) : new InsufficientCredit(reply.message);
   };
 }
 

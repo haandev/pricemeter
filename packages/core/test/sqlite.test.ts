@@ -15,15 +15,12 @@ const fresh = (prepaid = true) => {
 describe("pricemeter/sqlite", () => {
   it("passes the commit contract (prepaid and postpaid)", async () => {
     const make = (prepaid: boolean) => () => {
-      const { a } = fresh(prepaid);
+      const { db, a } = fresh(prepaid);
+      const count = (t: string, acc: string) => Number((db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE account_id = ?`).get(acc) as { n: number }).n);
       return {
         commit: a.commit,
         seed: (acc: string, n: number) => a.credit(acc, n),
-        snapshot: (acc: string) => ({
-          usage: a.usedSoFar({ account: acc, meter: "contract/meter" }) / 3,
-          ledger: a.spent({ account: acc }) === 0 ? 0 : 1,
-          available: a.balance(acc).available,
-        }),
+        snapshot: (acc: string) => ({ usage: count("usage_events", acc), ledger: count("ledger_entries", acc), available: a.balance(acc).available }),
       };
     };
     const pre = await commitContract({ make: make(true) });

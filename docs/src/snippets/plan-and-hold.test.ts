@@ -179,3 +179,29 @@ describe("hold page", () => {
     expect(c).toMatchObject({ ok: true, charged: 4_000 });
   });
 });
+
+describe("quota", () => {
+  it("refuses beyond the limit, atomically", async () => {
+    const mem = memoryAdapters();
+    const free: Rate = { model: "graduated", tiers: [{ from: 0, unitPriceMicroUsd: 0 }] };
+    // #region quota
+    const metering = buildMetering()
+      .context<{ accountId: string; plan: "free" | "pro" }>()
+      .refs(["api"])
+      .meter("api/call", ["route"])
+      .getRate(async (meter, _dims, ctx, _at) => ({
+        rate: free,
+        usedSoFar: mem.store.used(ctx.accountId, meter), // this month's calls
+        limit: ctx.plan === "free" ? 10 : undefined, //     the same period's cap; 0 = not in the plan
+      }))
+      .commit(mem.commit);
+
+    const ctx = { accountId: "acme", plan: "free" as const };
+    await metering.observe("api/call", { route: "/a" }, 9, { type: "api", id: "1" }, ctx); // ok: 9 of 10
+    const r = await metering.observe("api/call", { route: "/a" }, 4, { type: "api", id: "2" }, ctx);
+    // → { ok: false, reason: "quota_exceeded", meter: "api/call",
+    //     cause: { meter: "api/call", limit: 10, used: 9, requested: 4 } }   nothing written
+    // #endregion
+    expect(r).toEqual({ ok: false, reason: "quota_exceeded", meter: "api/call", cause: { meter: "api/call", limit: 10, used: 9, requested: 4 } });
+  });
+});

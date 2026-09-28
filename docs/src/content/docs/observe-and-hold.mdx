@@ -75,6 +75,7 @@ Başarı: `{ ok: true, charged, lines }` (hold/capture'da ayrıca `holdId`, `hol
 | `no_price` | `getRate` `null` döndü, `ifMissing: "reject"` | hiçbir şey |
 | `usage_required` | Tarife `usedSoFar` istiyor, verilmedi | hiçbir şey |
 | `insufficient_credit` | `commit` `InsufficientCredit` fırlattı (isimle de eşleşir, RPC'den geçer) | hiçbir şey |
+| `quota_exceeded` | `usedSoFar` + istenen > `getRate`'in `limit`'i, ya da `commit` `QuotaExceeded` fırlattı; `cause: { meter, limit, used, requested }` | hiçbir şey |
 | `invalid_context` | Bağlam şemadan geçmedi, `accountId` string değil ya da hold başka hesabın | hiçbir şey |
 | `invalid_dims` | Boyutlar sayacın şemasından geçmedi | hiçbir şey |
 | `invalid_rate` | `getRate`'in ya da capture `{ rate }`'in döndüğü tarife `validateRate`'ten geçmedi | hiçbir şey |
@@ -90,3 +91,19 @@ Programcı hataları `Result` değil istisnadır: katalogda olmayan bir sayaç, 
 ## Bakiye kapısı
 
 "Bakiye ≥ tutar" kütüphanede değildir. `commit` yetersiz bakiyede `InsufficientCredit` fırlatır, lib `insufficient_credit` döner. Hold ve extend de borç sayılır: prepaid bir `commit` ayrılabilir bakiyeyi aşan rezervasyonu reddeder. Postpaid = `commit` hiç fırlatmaz (B26).
+
+## Kota
+
+Bakiye kapısı "ödeyebiliyor mu?" sorusunu yanıtlar; kota "hakkı var mı?" sorusunu. `getRate` `rate` ve `usedSoFar`'ın yanında aynı dönem için bir `limit` dönebilir (A107):
+
+<Source file="docs/src/snippets/plan-and-hold.test.ts" region="quota" />
+
+- **Ya hep ya hiç.** 9/10 iken gelen 4'lük istek tamamen reddedilir. Kısmi kullanım uygulamanın kararıdır: `cause.limit − cause.used` kalanı söyler.
+- **Sayaç başına.** Aynı sayacın satırları, boyutları farklı olsa da toplanır. `limit: 0` = bu sayaç planda yok (`no_price`'tan farklı: fiyat var, hak yok).
+- **Havuzlar.** Havuz sayacının `limit`'i onu besleyen her kanalı sınırlar ("SMS + WhatsApp toplam 1.000, sonra dur").
+- **Atomik.** Kütüphanenin ön kontrolü eşzamanlı iki isteği göremez: ikisi de 999'u okur. Bu yüzden limit usage satırına yazılır ve adapter onu `commit`'in transaction'ında yeniden kontrol eder, aşarsa `QuotaExceeded` fırlatır ([adapter sözleşmesi](/pricemeter/adapters/#commit-sözleşmesi)).
+- **Hold.** `hold` ve `extend` ayrılan miktarı kontrol eder; `capture` asla reddedilmez (gönderilmiş bir SMS'in kaydı reddedilemez).
+- **Koltuklar değil.** Sayaçlar yalnızca artar. Koltuk gibi inip çıkan seviyelerin limiti uygulamadadır (A108):
+
+<Source file="examples/saas-seats/src/seats.ts" decl="SeatRegistry" />
+

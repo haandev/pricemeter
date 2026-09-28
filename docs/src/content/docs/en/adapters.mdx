@@ -11,12 +11,13 @@ The library has two doors to the world: `getRate`, which asks for the tariff and
 ## The `getRate` contract
 
 ```ts
-(meter, dims, ctx, at) => { rate, usedSoFar?, carry? } | null | undefined   // or a Promise of it
+(meter, dims, ctx, at) => { rate, usedSoFar?, carry?, limit? } | null | undefined   // or a Promise of it
 ```
 
 - Return **the whole tariff**; `rate()` picks the tier. Raw objects are fine; the library validates them (`invalid_rate`).
 - `usedSoFar`: units this account used on this meter **in the period you choose**, so far. Required for tiered, `volume`, `package`, flat-fee and `cumulative` tariffs; missing → `usage_required` ([rules](/pricemeter/en/rate-models/#usedsofar)).
 - `carry`: `cumulative` rounding only, the previous usage row's `detail.carry`.
+- `limit`: this meter's cap in the same period as `usedSoFar`; a call beyond it returns `quota_exceeded` ([quotas](/pricemeter/en/observe-and-hold/#quotas)). Without `usedSoFar`: `usage_required`.
 - How to read `at` (event time or computation time) is your decision. Period-end observations use `at: window.to − 1`, because windows are half-open and `window.to` selects the next period (A98).
 - Counter scope is yours: the reference adapters count per meter, without dimensions. For tiers per dimension value, count with `dims` in `getRate` (`sqliteAdapter.usedSoFar({ dims })`; A100).
 - `null` = no price → `ifMissing`. A throw from `getRate` surfaces as an exception from `observe`.
@@ -34,6 +35,7 @@ The library has two doors to the world: `getRate`, which asks for the tariff and
 | **Idempotent**: skip a repeated `(refType, refId)` silently (together with `op` on the ledger) | Application retries stay safe |
 | The balance moves only for ledger rows **actually inserted** | A retry must not debit twice |
 | Prepaid: if `balance − reserved` would go below 0, throw `InsufficientCredit` and write nothing | The balance gate is in the same atomic step as the write |
+| For a new usage row with a `limit`: if the counter for the row's period + `quantity` would exceed it, throw `QuotaExceeded` and write nothing | The quota gate is in the same atomic step too (A107). SQLite: `windowOf`, DO: `periodOf` |
 | `charge` lowers the balance (raises it if negative); `hold`/`extend` raise `reserved` and count as debits; `capture` lowers the balance; `release` frees the reservation | Available = `balance − reserved` |
 | Track what is **actually reserved** per hold: `capture` lowers the reservation by at most that, `release` frees that rather than the plan's amount (A102) | A hold retried with a different amount is written as a no-op but returns a recomputed `upperBound`; a release trusting the plan would shift the reservation |
 | Throw for anything else | The library returns `commit_failed` with the error in `cause` |

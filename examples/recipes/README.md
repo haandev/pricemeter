@@ -38,6 +38,7 @@ bunx tsc --noEmit -p examples/recipes/tsconfig.json
 | B25 | Reseller → customer → list | three layers in getRate | recipe | [b25-reseller-layers](b25-reseller-layers.test.ts) |
 | B26 | Postpaid | commit doesn't check balance | recipe | [b26-postpaid](b26-postpaid.test.ts) |
 | B27 | Coupon-like credit | `flatCredit` | module | [b27-coupon-credit](b27-coupon-credit.test.ts) |
+| B28 | Hard quota: stop the free plan at 1,000 a month | `limit` from `getRate` → `quota_exceeded`, enforced atomically in `commit` | core | [b28-hard-quota](b28-hard-quota.test.ts) |
 | L1 | Lago standard / graduated / volume / package | the three models | core | [l01-lago-charge-models](l01-lago-charge-models.test.ts) |
 | L2 | Lago percentage, graduated_percentage | like B22 | core | [l02-lago-percentage](l02-lago-percentage.test.ts) |
 | L3 | Lago dynamic | like B23 | recipe | [l03-lago-dynamic](l03-lago-dynamic.test.ts) |
