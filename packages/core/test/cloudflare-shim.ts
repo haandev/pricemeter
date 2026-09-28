@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { DurableStorageLike, SqlCursor } from "pricemeter-cloudflare";
+import type { DurableStorageLike, SqlCursor } from "pricemeter/cloudflare";
 
 /** Durable Object SQLite storage over node:sqlite, for tests. */
 export function fakeStorage(): DurableStorageLike & { db: DatabaseSync } {

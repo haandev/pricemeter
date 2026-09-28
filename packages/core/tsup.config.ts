@@ -8,6 +8,8 @@ export default defineConfig({
     "adjustments/index": "src/adjustments/index.ts",
     "testing/index": "src/testing/index.ts",
     "calendar/index": "src/calendar/index.ts",
+    "sqlite/index": "src/sqlite/index.ts",
+    "cloudflare/index": "src/cloudflare/index.ts",
   },
   format: ["esm", "cjs"],
   // tsup sets baseUrl for the d.ts build, which TypeScript 6 deprecates

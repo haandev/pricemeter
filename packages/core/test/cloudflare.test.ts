@@ -15,8 +15,8 @@ import {
   flushOutbox,
   migrateAccount,
   readOutbox,
-} from "pricemeter-cloudflare";
-import { fakeD1, fakeStorage } from "./shim.js";
+} from "pricemeter/cloudflare";
+import { fakeD1, fakeStorage } from "./cloudflare-shim.js";
 
 /** One fake DO per account. */
 function accounts(prepaid = true) {
@@ -36,7 +36,7 @@ function accounts(prepaid = true) {
   return { get, commit, periodOf };
 }
 
-describe("pricemeter-cloudflare", () => {
+describe("pricemeter/cloudflare", () => {
   it("passes the commit contract through the DO RPC path", async () => {
     const res = await commitContract({
       make: () => {

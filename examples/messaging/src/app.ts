@@ -4,7 +4,7 @@
  */
 import type { Hold, Rate } from "pricemeter";
 import { monthKey } from "pricemeter/calendar";
-import { doCommit } from "pricemeter-cloudflare";
+import { doCommit } from "pricemeter/cloudflare";
 import type { PriceVersion } from "pricemeter/rates";
 import type { AccountApi } from "./account.js";
 import { catalog, type Context } from "./catalog.js";

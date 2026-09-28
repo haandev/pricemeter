@@ -26,11 +26,18 @@ const r = await metering.observe("otp/sms", { country: "TR" }, 2, { type: "otp_s
 - **Holds:** multi-line reservations as value objects, partial captures, extend, release.
 - **Typed catalog:** meter ids, dimensions (zod / valibot / arktype via Standard Schema), pools (`feeds`) — checked at compile time; 500 meters type-check in under a second.
 
-| Package | |
+One package, zero dependencies; everything else is a tree-shakable subpath:
+
+| Import | |
 | --- | --- |
-| [`pricemeter`](packages/core) | core + `/rates`, `/gauge`, `/adjustments`, `/calendar`, `/testing` |
-| [`pricemeter-sqlite`](packages/sqlite) | reference `commit` for SQLite (`node:sqlite`, `bun:sqlite`, better-sqlite3) |
-| [`pricemeter-cloudflare`](packages/cloudflare) | Durable Object ledger + D1 usage sink |
+| `pricemeter` | catalog, `rate()`, `price()`, observe / hold / capture |
+| `pricemeter/rates` | layered price table → ready `getRate` |
+| `pricemeter/gauge` | seats, GB: level samples → quantity |
+| `pricemeter/adjustments` | minimum commit, credits, volume true-up |
+| `pricemeter/calendar` | month and billing-cycle keys and windows |
+| `pricemeter/testing` | memory adapters, `expectPlan`, `commitContract` |
+| `pricemeter/sqlite` | reference `commit` for SQLite (`node:sqlite`, `bun:sqlite`, better-sqlite3) |
+| `pricemeter/cloudflare` | Durable Object account ledger + D1 usage sink |
 
 Docs: https://haandev.github.io/pricemeter/ · Design: [`design/spec.md`](design/spec.md), [`design/decisions.md`](design/decisions.md)
 
